@@ -1,7 +1,7 @@
 # <img src="Images/CSM_Logo.jpg" width="60" style = "align-items: center"> Comprehensive Spatial Methods (CSM) 
 **Summary:** CSM is a R developed toolbox to analyze spatially resolved tissue data. To see a demo of CSM capabilities please see related [*publication*](publicationURL).
 
-<img src="Images/CSM_OUTLINE.png" width="600" style = "align-items: center">
+<img src="Images/CSM_OUTLINE.png" width="1000" style = "align-items: center">
 
 ## What you will find in this Repository (Folder description)
 [Requirements and installation](#Main features and requirements) 
