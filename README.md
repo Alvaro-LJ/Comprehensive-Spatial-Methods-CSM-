@@ -4,8 +4,8 @@
 <img src="Images/CSM_OUTLINE.png" width="1000" style = "align-items: center">
 
 ## What you will find in this Repository (Folder description)
-[Requirements and installation](#Main features and requirements) 
-[Main CSM scripts](#CSM scripts) 
+[Requirements and installation](#Main-features-and-requirements) 
+[Main CSM scripts](#CSM-scripts) 
 [Publication associated datasets](#Publication) 
 [Image Bank](#Images) 
 [Citation](#Images) 
