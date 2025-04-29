@@ -19,10 +19,10 @@
 ## CSM scripts
 This folder contains the CSM source code (containing code for all required CSM functions) and the CSM user code (Containing examples of use. In addition a test dataset containing features of XXX endometrial carcinoma cells can also be found in this folder.
 
-#Publication
+## Publication
 This folder contains the CSM scripts and datasets to replicate the results of our [*publication*](publicationURL).
 
-#Images
+## Images
 This folder contains several test images used in the related [*publication*](publicationURL), as well as CSM logo and toolbox outline.
 
 
