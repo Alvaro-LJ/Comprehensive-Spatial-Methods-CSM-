@@ -1,0 +1,10 @@
+﻿Phenotype;Phenotype_Number;Assignment_round;Phenotype_dependency;high_expression_threshold_anchor;high_expression_threshold_index;low_expression_threshold_anchor;low_expression_threshold_index;CD3e_q0975;CD8_q0975;CD4_q0975;CXCR5_q0975;CD20_q0975;CD138_q0975;CD31_q0975;Lyve1_q0975;CD35_q0975;CD107a_q0975;CD21_q0975;FoxP3_q0975;CD11c_q0975;CD15_q0975;Ki67_q0975
+Endothelial_cells;1;1;0;0,99;0,01;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;0
+Myeloid;2;1;0;0,99;0,01;1;1;0;0;0;0;0;0;0;0;0;NA;0;0;1;1;NA
+DC;3;1;0;0,99;0,01;1;1;0;0;0;0;0;0;0;0;1;1;1;0;0;0;NA
+T_cytotoxic;4;1;0;0,99;0,01;1;1;1;1;0;0;0;0;0;0;0;0;0;0;0;0;NA
+T_helper;5;1;0;0,99;0,01;1;1;1;0;1;NA;0;0;0;0;0;0;0;0;0;0;NA
+T_reg;6;1;0;0,99;0,01;1;1;1;0;1;NA;0;0;0;0;0;0;0;1;0;0;NA
+B_cell_GC;7;1;0;0,99;0,01;1;1;0;0;0;0;1;0;0;0;0;0;0;0;0;0;1
+B_cell_Non_GC;8;1;0;0,99;0,01;1;1;0;0;0;0;1;0;0;0;0;0;0;0;0;0;0
+Plasma_cell;9;1;0;0,99;0,01;1;1;0;0;0;0;0;1;NA;NA;0;0;0;0;0;0;NA
