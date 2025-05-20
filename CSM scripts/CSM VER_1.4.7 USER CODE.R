@@ -275,7 +275,7 @@ Data_QC_Check_function(DATA = DATA) #Specify the data to be checked for missing 
 
 #6 PREPARE CLINICAL DATA
 
-DATA_CLINICAL <- readr::read_delim("Endometrial_data_clinical.csv", delim = ",")#Paste your data pathway and select delimiter ("," is the default)
+DATA_CLINICAL <- readRDS("Endometrial_data_clinical.rds")
 
 #We will change certain variables to factors
 DATA_CLINICAL <- DATA_CLINICAL %>% dplyr::mutate(RELAPSE = as.factor(RELAPSE),
