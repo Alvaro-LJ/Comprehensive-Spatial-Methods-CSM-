@@ -23,7 +23,7 @@ This folder contains the CSM source code (containing code for all required CSM f
 This folder contains the CSM scripts and datasets to replicate the results of our [*publication*](publicationURL).
 
 ## Images
-This folder contains several test images used in the related [*publication*](publicationURL), as well as CSM logo and toolbox outline.
+This folder contains the CSM logo and toolbox outline.
 
 
 ## Citation
