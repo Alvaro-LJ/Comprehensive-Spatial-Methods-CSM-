@@ -32,7 +32,7 @@ Please cite this paper in case our method or parts of it were helpful in your wo
 @article{XXX,
   title={XXX},
   author={XXX},
-  journal=XXX},
+  journal={XXX},
   year={XXX}
 }
 ```
