@@ -159,6 +159,71 @@ Image_deconvolution_function(Directory = "My_images_directory", #path to the ima
                              N_cores = 1 #Number of cores to parallelize your computation
 )
 
+#0 (OPTIONAL) sometimes proyects involve working simultaneously with cells and extra-cellular molecules. Working with this images can be challenging. 
+#CSM allows the user to work with images using various approaches. Images can be thresholded to select positive pixels that can then be used to analyze their relationship with cells
+
+#Pixel thresholding parameters can be explored using the dedicated thresholding APP
+Image_thresholding_app_launcher(Directory = "My_images_directory",
+                                Ordered_Channels = c("DAPI", "PDL1", "CD8", "FOXP3", "CD68", "PD1", "CK", "AUTO"))
+
+#Pixels can be thresholded using the following functino
+Pixel_Threshold_calculator(N_cores = 2, #Cores to parallelize computation
+                           Directory = "My_images_directory", #Path to images
+                           Ordered_Channels = c("DAPI", "PDL1", "CD8", "FOXP3", "CD68", "PD1", "CK", "AUTO"), #Image channels in order
+                           Channels_to_keep = c("DAPI", "PDL1", "CD8", "FOXP3", "CD68", "PD1", "CK", "AUTO"), #Channels used in tissue mask generation
+                           Target_channel = "PDL1", #Target channel to be analyzed
+                           
+                           Save_processed_images = TRUE, #Should thresholded images saved? These thresholded images can be used in further analyses
+                           Output_Directory = "Processed_Images_directory", #Path where output images should be stored
+                           
+                           Local_thresholding = FALSE, #Thresholds should be calculated locally (per image) or using all images in the directory 
+                           Threshold_type = "Multilevel", #Type of threshold should be one of the following: Arbitrary, Otsu or Multilevel
+                           Threshold_value = c(0.001, 0.1, 0.3), #Values must be provided for Arbitrary and CAN be provided for Multilevel
+                           Levels = 3, #Multilevel thresholding can also be performed automatically. The desired number of levesl can be provided if Threshold_value is NULL
+                           
+                           Threshold_type_tissueMask = "Arbitrary", #Type of threshold to performe tissue mask. Either Otsu, Arbitrary or Absolute
+                           Threshold_value_tissueMask = 0.001, #Value used if Arbitrary is the threshold type of choice
+                           Blurr_tissueMask = TRUE, #Should image blurring be performed before tissue mask generation?
+                           Sigma_tissueMask = 0.5, #Sigma to perform image blurring
+                           
+                           Blurr_target = TRUE, #Should target image blurring be performed before thresholding
+                           Sigma_target = 4 #Sigma to perform image blurring
+)
+
+#Mean Fluorescence Intensity for every image can also be calculated
+
+#Mean Fluorescence Intensity is always calculated using a tissue mask, but can also take into account an overlay of masks
+
+#Mask list. A lis of lists. Every marker list should have 5 elements.
+#In this example we will try to calculate the MFI of PDL1 in macrophages that are located within the tumor compartment
+Target_mask_list <- list(Tumor = list(Mask_name = "CK", 
+                                      Threshold_type = "Arbitrary", 
+                                      Threshold_value = 0.001, 
+                                      Blurr = TRUE, 
+                                      Sigma = 2),
+                         MACROPHAGES = list(Mask_name = "CD68", 
+                                            Threshold_type = "Arbitrary", 
+                                            Threshold_value = 0.001, 
+                                            Blurr = TRUE, 
+                                            Sigma = 2)
+)
+
+#Afterwards, MFI can be calculated using the following function
+MFI_Experimet_Calculator(
+  N_cores = 2, #Cores to parallelize computation
+  Directory = "My_images_directory", #Directory storing images
+  Ordered_Channels = c("DAPI", "PDL1", "CD8", "FOXP3", "CD68", "PD1", "CK", "AUTO"), #Image channels in order
+  Channels_to_keep = c("DAPI", "PDL1", "CD8", "FOXP3", "CD68", "PD1", "CK", "AUTO"), #Channels used in tissue mask generation
+  Target_channel = "PDL1", #Target channel to be analyzed
+  
+  Target_masks = Target_mask_list, #This will be a list of lists features where each item will be a target mask 
+  
+  Threshold_type_tissueMask = "Arbitrary", #Type of threshold to performe tissue mask. Either Otsu, Arbitrary or Absolute
+  Threshold_value_tissueMask = 0.01, #Value used if Arbitrary is the threshold type of choice
+  Blurr_tissueMask = TRUE, #Should image blurring be performed before tissue mask generation?
+  Sigma_tissueMask = 0.5 #Sigma to perform image blurring
+)
+
 #Now we can perform cell segmentation
 #The following function allows to test different segmentation parameters
 Segmentation_Parameters <- Segmentation_tester(Directory = "My_images_directory", #path to the folder containing the images
@@ -697,6 +762,24 @@ Image_plotter(DATA = DATA_Phenotypes, #Your phenotype data source
               Phenotypes_included = c("TUMOR", "CD8", "MACROPHAGE", "TREG") #which phenotypes should be included in the graph
 )
 
+#You may plot the image and the cells generating an overlay
+Cell_image_plot_generator(Image_directory = "Endo_IG09_T_Core[1,1,B].tif", #Image path
+                          Channel_to_display = 1, #Channel index to be displayed
+                          Image_rotate = NULL, #Rotate image, either NULL or a numeric value between 0 and 360
+                          Image_x_flip = FALSE, #Flip image horizontally
+                          Image_y_flip = TRUE, #Flip image vertically
+                          Gamma_level = 0, #Gamma level (between -3 and +3)
+                          Equalize = FALSE, #Should image be equalized
+                          Black_level = 0, #Value between 0 and 100
+                          White_level = 100, #Value between 0 and 100
+                          
+                          DATA = DATA_Phenotypes, #Cell data
+                          Image_name = "Endo_IG09_T_Core[1,1,B]", #Image to be displayed
+                          Color_by = "Phenotype", #Either NULL or the column used to color the cells 
+                          Point_size = 1, #Size of the points
+                          Pixel_distance_ratio = NULL #Pixel to distance ratio to be used when cells coordinates are not in pixel units
+)
+
 #Analyze correlation of density from each cell type
 Plot_correlation_matrix(DATA = Phenotypes_by_Sample, #Provide sample information data
                         Variables_included = c("Density_CD8", "Density_MACROPHAGE", "Density_TUMOR", "Density_TREG", "Density_OTHER"),#Provide the markers to be correlated
@@ -1095,6 +1178,41 @@ SPIAT_entropy_gradient_generator(DATA_SPIAT = DATA_SPIAT, #Provide the list of S
                                  Gradient_stop = 60, #Provide the max distance to calculate the gradient
                                  Gradient_sampling = 25, #Provide the sampling frequency to calculate the gradient
                                  Phenotypes_included = c("TUMOR", "CD8") #Specify two cell populations to calculate the gradient (first COO, then Target cell)
+)
+
+#Distance from cells to pixels in images can also be calculated
+DATA_Phenotypes_distance <- Cell_to_pixel_distance_calculator(N_cores = 1, #Cores to parallelize computation
+                                                              Directory = "My_directory_with_thresholded_images", #Path to thresholded images
+                                                              Image_rotate = 90, #Should images be rotated before analysis (Either NULL or a numeric value between 0 and 360)
+                                                              Image_x_flip = FALSE, #Should images be horizontally flipped before analysis
+                                                              Image_y_flip = TRUE, #Should image be vertically flipped before analysis
+                                                              DATA = DATA_Phenotypes, #DATA to be used
+                                                              Phenotypes_included = unique(DATA_Phenotypes$Phenotype), #Phenotypes included in the computation
+                                                              Pixel_distance_ratio = NULL #Distance ratio to be used when cell coordinates are not specified in pixels
+)
+DATA_Phenotypes_distance_segmented <- Marker_segmentator(DATA = DATA_Phenotypes_distance, #DATA 
+                                                         DATA_variable = "PDL1_DIST", #Variable to be segmented
+                                                         DATA_cutoff = c(0, 5, 20, 1000), #Cut off values
+                                                         DATA_labels = c("Inside", "Border", "Outside"), #New labels (must be N of cut off - 1)
+                                                         Merge = FALSE, #Should the new variable be merged with another variable
+                                                         Var_to_Merge = "Phenotype" #Variable to be merged with
+)
+
+Cell_image_plot_generator(Image_directory = "Endo_IG09_T_Core[1,1,B].tiff", #Image path
+                          Channel_to_display = 1, #Channel index to be displayed
+                          Image_rotate = NULL, #Rotate image, either NULL or a numeric value between 0 and 360
+                          Image_x_flip = FALSE, #Flip image horizontally
+                          Image_y_flip = TRUE, #Flip image vertically
+                          Gamma_level = 0, #Gamma level (between -3 and +3)
+                          Equalize = FALSE, #Should image be equalized
+                          Black_level = 0, #Value between 0 and 100
+                          White_level = 100, #Value between 0 and 100
+                          
+                          DATA = DATA_Phenotypes_distance_segmented, #Cell data
+                          Image_name = "Endo_IG09_T_Core[1,1,B]", #Image to be displayed
+                          Color_by = "PDL1_DIST", #Either NULL or the column used to color the cells 
+                          Point_size = 1, #Size of the points
+                          Pixel_distance_ratio = NULL #Pixel to distance ratio to be used when cells coordinates are not in pixel units
 )
 
 #######################################STEP 6 - NEIGHBORHOOD ANALYSIS#####################################################
