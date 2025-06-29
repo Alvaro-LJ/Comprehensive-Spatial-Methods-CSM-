@@ -33,12 +33,14 @@ Describe_my_computing_unit <- cmpfun(
 
 EBImage_color_thresholder <- cmpfun(function(Image = NULL, 
                                              Target = c(1, 1, 1),
-                                             Tolerance = NULL){
+                                             Color_Tolerance = NULL,
+                                             Final_Tolerance = NULL){
   #Check arguments
   if(!EBImage::is.Image(Image)) stop("Image must be of class EBImage")
   if(!all(is.integer(as.integer(Target)), length(Target) == 3)) stop("Target must contain the target color information in RGB format")
   if(!all(map_lgl(Target, function(value) value >= 0 & value <= 255))) stop("Target must be of the 8-bit RGB format")
-  if(!all(is.numeric(Tolerance), Tolerance >= 0, Tolerance <= 1)) stop("Tolerance must be numeric value between 0 and 1")
+  if(!all(is.numeric(Color_Tolerance), length(Color_Tolerance) == 3, all(Color_Tolerance >= 0), all(Color_Tolerance <= 1))) stop("Color_Tolerance must be a numeric vector of length = 3 with numeric values between 0 and 1")
+  if(!all(is.numeric(Final_Tolerance), Final_Tolerance >= 0, Final_Tolerance <= 1))stop("Final_Tolerance must be a single numeric value between 0 and 1")
   
   #Target colors are transformed to 0-1 scale
   RED <- Target[[1]]/255
@@ -50,10 +52,16 @@ EBImage_color_thresholder <- cmpfun(function(Image = NULL,
   GREEN_channel <- EBImage::channel(Image, "green")
   BLUE_channel <- EBImage::channel(Image, "blue")
   
-  #Each channel will be the difference between the value and the target
+  #Each channel will be the difference between the value and the target according to tolerance
   RED_channel <- 1 - abs(RED_channel - RED)
+  RED_channel[RED_channel < 1-Color_Tolerance[[1]]] <- 0
+  
   GREEN_channel <- 1 - abs(GREEN_channel - GREEN)
+  GREEN_channel[GREEN_channel < 1-Color_Tolerance[[2]]] <- 0
+  
   BLUE_channel <- 1 - abs(BLUE_channel - BLUE)
+  BLUE_channel[BLUE_channel < 1-Color_Tolerance[[3]]] <- 0
+  
   
   #Merge channels to a grey colorscale
   Final_image <- 
@@ -61,9 +69,7 @@ EBImage_color_thresholder <- cmpfun(function(Image = NULL,
                                        green = GREEN_channel,
                                        blue = BLUE_channel),
                      mode = "grey") 
-  
-  #Those pixels out of tolerance range will be set to 0
-  Final_image[Final_image < 1-Tolerance] <- 0
+  Final_image[Final_image < 1-Final_Tolerance] <- 0
   
   #return the final EBImage object
   return(Final_image)
@@ -93,7 +99,9 @@ Channel_deconvolution_function <- cmpfun(function(Image = NULL,
   #Extract Image
   Photo <- EBImage_color_thresholder(Image = Photo, 
                                      Target = c(Parameters[["RED_value"]], Parameters[["GREEN_value"]], Parameters[["BLUE_value"]]),
-                                     Tolerance = Parameters[["Tolerance_value"]])
+                                     Color_Tolerance = Parameters[["Color_Tolerance"]],
+                                     Final_Tolerance = Parameters[["Final_Tolerance"]]
+  )
   #Apply post processing if required
   #Apply transformations before erosion and dilation
   if(Parameters[["Post_normalize"]]) Photo <- magick::image_read(Photo) %>% magick::image_normalize() %>% magick::as_EBImage()
@@ -131,121 +139,127 @@ Color_deconvolution_App_launcher <- cmpfun(
     Real_Images <- dir(Directory, full.names = FALSE)
     
     #BUILD THE USER INTERFACE
-    user_interface <- shiny::fluidPage(
-      
-      #Set the title
-      shiny::titlePanel("Image color deconvolution APP"),
-      
-      #We want a two panel layout, one in the left containing the input parameters and the output in the right
-      shiny::sidebarLayout(
-        #Set the first column (which contains the user defined parameters)
-        shiny::sidebarPanel(
-          #ID and width
-          id="sidebar",
-          
-          #Select the image to be tested  
-          shiny::fluidRow(
-            shiny::column(3, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
-            shiny::column(3, shiny::textInput("Channel_name", "Channel name", value = "Channel_1")),
-            shiny::column(2, shiny::selectInput("Res", "Image Res", c(Low = 150, Mid = 300, high = 600, Original = 1000), selected = 150, multiple = FALSE)),
-            shiny::column(2, shiny::actionButton("ADD_button", shiny::icon("plus", library = "font-awesome"), label = "Add")),
-            shiny::column(2, shiny::actionButton("Remove", shiny::icon("minus", library = "font-awesome"), label = "Remove")),
-          ),
-          
-          shiny::h4("Initial Pre-processing"),
-          #Select basic image features
-          shiny::fluidRow(
-            shiny::column(4, shiny::sliderInput("Brightness", "Brightness", value = 100, min = 0, max = 100, step = 1)),
-            shiny::column(4, shiny::sliderInput("Saturation", "Saturation", value = 100, min = 0, max = 100, step = 1)),
-            shiny::column(4, shiny::sliderInput("Hue", "Hue", value = 100, min = 0, max = 100, step = 1))
-          ),
-          
-          #Normalize, Equalize, Contrast and color reduction
-          shiny::fluidRow(
-            shiny::column(2, shinyWidgets::materialSwitch("Normalize", "Normalize", value = FALSE)),
-            shiny::column(2, shinyWidgets::materialSwitch("Equalize", "Equalize", value = FALSE)),
-            shiny::column(2, shinyWidgets::materialSwitch("Contrast", "Contrast", value = FALSE)),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Contrast == '1'",
-                                                     shiny::numericInput("Sharpen", "Sharpen", value = 1, min = 1, max = NA, step = 1)
-            )),
-            shiny::column(2, shinyWidgets::materialSwitch("Quantize", "Colors", value = FALSE)),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Quantize == '1'",
-                                                     shiny::numericInput("Max_colors", "Max", value = 100, min = 1, max = NA, step = 1)
-            ))
+    {
+      user_interface <- shiny::fluidPage(
+        
+        #Set the title
+        shiny::titlePanel("Image color deconvolution APP"),
+        
+        #We want a two panel layout, one in the left containing the input parameters and the output in the right
+        shiny::sidebarLayout(
+          #Set the first column (which contains the user defined parameters)
+          shiny::sidebarPanel(
+            #ID and width
+            id="sidebar",
             
+            #Select the image to be tested  
+            shiny::fluidRow(
+              shiny::column(3, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
+              shiny::column(3, shiny::textInput("Channel_name", "Channel name", value = "Channel_1")),
+              shiny::column(2, shiny::selectInput("Res", "Image Res", c(Low = 150, Mid = 300, high = 600, Original = 1000), selected = 150, multiple = FALSE)),
+              shiny::column(2, shiny::actionButton("ADD_button", shiny::icon("plus", library = "font-awesome"), label = "Add")),
+              shiny::column(2, shiny::actionButton("Remove", shiny::icon("minus", library = "font-awesome"), label = "Remove")),
+            ),
+            
+            shiny::h4("Initial Pre-processing"),
+            #Select basic image features
+            shiny::fluidRow(
+              shiny::column(4, shiny::sliderInput("Brightness", "Brightness", value = 100, min = 0, max = 100, step = 1)),
+              shiny::column(4, shiny::sliderInput("Saturation", "Saturation", value = 100, min = 0, max = 100, step = 1)),
+              shiny::column(4, shiny::sliderInput("Hue", "Hue", value = 100, min = 0, max = 100, step = 1))
+            ),
+            
+            #Normalize, Equalize, Contrast and color reduction
+            shiny::fluidRow(
+              shiny::column(2, shinyWidgets::materialSwitch("Normalize", "Normalize", value = FALSE)),
+              shiny::column(2, shinyWidgets::materialSwitch("Equalize", "Equalize", value = FALSE)),
+              shiny::column(2, shinyWidgets::materialSwitch("Contrast", "Contrast", value = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Contrast == '1'",
+                                                       shiny::numericInput("Sharpen", "Sharpen", value = 1, min = 1, max = NA, step = 1)
+              )),
+              shiny::column(2, shinyWidgets::materialSwitch("Quantize", "Colors", value = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Quantize == '1'",
+                                                       shiny::numericInput("Max_colors", "Max", value = 100, min = 1, max = NA, step = 1)
+              ))
+              
+            ),
+            
+            #Target color 
+            shiny::h4("Color targeting"),
+            shiny::fluidRow(
+              shiny::column(3, shiny::textInput("Color_text", "Color", value = "#ffffff")),
+              shiny::column(2, shiny::numericInput("RED", "RED", value = 255, min = 0, max = 255, step = 1)),
+              shiny::column(2, shiny::numericInput("GREEN", "GREEN", value = 255, min = 0, max = 255, step = 1)),
+              shiny::column(2, shiny::numericInput("BLUE", "BLUE", value = 255, min = 0, max = 255, step = 1)),
+              shiny::column(1, shiny::plotOutput("Target", width = 45, height = 45, inline = FALSE))
+            ),
+            shiny::fluidRow(
+              shiny::column(3, shiny::numericInput("Tolerance_RED", "Red Tol", value = 0.1, min = 0, max = 1, step = 0.01)),
+              shiny::column(3, shiny::numericInput("Tolerance_GREEN", "Green Tol", value = 0.1, min = 0, max = 1, step = 0.01)),
+              shiny::column(3, shiny::numericInput("Tolerance_BLUE", "Blue Tol", value = 0.1, min = 0, max = 1, step = 0.01)),
+              shiny::column(3, shiny::numericInput("Tolerance_Final", "End Tol", value = 0.1, min = 0, max = 1, step = 0.01))
+            ),
+            
+            #Opening and closing
+            shiny::h4("Final Processing"),
+            #Normalize and equalize
+            shiny::fluidRow(
+              shiny::column(2, shinyWidgets::materialSwitch("Post_Normalize", "Normalize", value = FALSE)),
+              shiny::column(2, shinyWidgets::materialSwitch("Post_Equalize", "Equalize", value = FALSE)),
+            ),
+            
+            #Erode dilate
+            shiny::fluidRow(
+              shiny::column(2, shinyWidgets::materialSwitch("Erode", "Erode", value = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Erode == '1'",
+                                                       shiny::numericInput("Erode_kern", "Kern", value = 1, min = 1, max = NA, step = 1)
+              )),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Erode == '1'",
+                                                       shiny::numericInput("Erode_round", "Rounds", value = 1, min = 1, max = NA, step = 1)
+              )),
+              shiny::column(2, shinyWidgets::materialSwitch("Dilate", "Dilate", value = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Dilate == '1'",
+                                                       shiny::numericInput("Dilate_kern", "Kern", value = 1, min = 1, max = NA, step = 1)
+              )),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Dilate == '1'",
+                                                       shiny::numericInput("Dilate_round", "Rounds", value = 1, min = 1, max = NA, step = 1)
+              ))
+            ),
+            
+            shiny::h4("Parameter results"),
+            #Buttons to add or remove
+            shiny::fluidRow(
+              shiny::column(3, shiny::actionButton("Download_Param", shiny::icon("download"), label = "Download Parameters"))
+            ),
+            
+            #The current results
+            shiny::fluidRow(
+              shiny::column(12, shiny::verbatimTextOutput("Result_list"))
+            )
           ),
           
-          #Target color 
-          shiny::h4("Color targeting"),
-          shiny::fluidRow(
-            shiny::column(3, shiny::textInput("Color_text", "Color", value = "#ffffff")),
-            shiny::column(2, shiny::numericInput("RED", "RED", value = 255, min = 0, max = 255, step = 1)),
-            shiny::column(2, shiny::numericInput("GREEN", "GREEN", value = 255, min = 0, max = 255, step = 1)),
-            shiny::column(2, shiny::numericInput("BLUE", "BLUE", value = 255, min = 0, max = 255, step = 1)),
-            shiny::column(2, shiny::numericInput("Tolerance", "Tolerance", value = 0.1, min = 0, max = 1, step = 0.01)),
-            shiny::column(1, shiny::plotOutput("Target", width = 45, height = 45, inline = FALSE))
-          ),
-          
-          #Opening and closing
-          shiny::h4("Final Processing"),
-          #Normalize and equalize
-          shiny::fluidRow(
-            shiny::column(2, shinyWidgets::materialSwitch("Post_Normalize", "Normalize", value = FALSE)),
-            shiny::column(2, shinyWidgets::materialSwitch("Post_Equalize", "Equalize", value = FALSE)),
-          ),
-          
-          #Erode dilate
-          shiny::fluidRow(
-            shiny::column(2, shinyWidgets::materialSwitch("Erode", "Erode", value = FALSE)),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Erode == '1'",
-                                                     shiny::numericInput("Erode_kern", "Kern", value = 1, min = 1, max = NA, step = 1)
-            )),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Erode == '1'",
-                                                     shiny::numericInput("Erode_round", "Rounds", value = 1, min = 1, max = NA, step = 1)
-            )),
-            shiny::column(2, shinyWidgets::materialSwitch("Dilate", "Dilate", value = FALSE)),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Dilate == '1'",
-                                                     shiny::numericInput("Dilate_kern", "Kern", value = 1, min = 1, max = NA, step = 1)
-            )),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Dilate == '1'",
-                                                     shiny::numericInput("Dilate_round", "Rounds", value = 1, min = 1, max = NA, step = 1)
-            ))
-          ),
-          
-          shiny::h4("Parameter results"),
-          #Buttons to add or remove
-          shiny::fluidRow(
-            shiny::column(3, shiny::actionButton("Download_Param", shiny::icon("download"), label = "Download Parameters"))
-          ),
-          
-          #The current results
-          shiny::fluidRow(
-            shiny::column(12, shiny::verbatimTextOutput("Result_list"))
+          #Set the outcome columns
+          shiny::mainPanel(
+            #First row will have the Photo and the overview of marker intensity by cell
+            shiny::fluidRow(
+              shiny::column(5, shiny::plotOutput("Photo",
+                                                 #Controls for zoom in
+                                                 dblclick = "Photo_dblclick",
+                                                 brush = shiny::brushOpts(id = "Photo_brush",
+                                                                          resetOnNew = TRUE)
+              )
+              ),
+              shiny::column(5, ggiraph::girafeOutput("Pre_Processed"))
+            ),
+            #Second row will contain the positive cells and the histogram
+            shiny::fluidRow(
+              shiny::column(5, shiny::plotOutput("Color")),
+              shiny::column(5, shiny::plotOutput("Final_channel"))
+            )
           )
         ),
-        
-        #Set the outcome columns
-        shiny::mainPanel(
-          #First row will have the Photo and the overview of marker intensity by cell
-          shiny::fluidRow(
-            shiny::column(5, shiny::plotOutput("Photo",
-                                               #Controls for zoom in
-                                               dblclick = "Photo_dblclick",
-                                               brush = shiny::brushOpts(id = "Photo_brush",
-                                                                        resetOnNew = TRUE)
-            )
-            ),
-            shiny::column(5, ggiraph::girafeOutput("Pre_Processed"))
-          ),
-          #Second row will contain the positive cells and the histogram
-          shiny::fluidRow(
-            shiny::column(5, shiny::plotOutput("Color")),
-            shiny::column(5, shiny::plotOutput("Final_channel"))
-          )
-        )
-      ),
-      shiny::tags$head(shiny::tags$style(
-        htmltools::HTML('
+        shiny::tags$head(shiny::tags$style(
+          htmltools::HTML('
          #sidebar {
             background-color: #cee02f;
         }
@@ -253,7 +267,9 @@ Color_deconvolution_App_launcher <- cmpfun(
         body, label, input, button, select { 
           font-family: "Arial";
         }')))
-    )
+      )
+    }
+    
     
     #BUILD THE SERVER
     server <- function(input, output, session){
@@ -276,7 +292,10 @@ Color_deconvolution_App_launcher <- cmpfun(
       RED_value <- shiny::reactive(input$RED)
       GREEN_value <- shiny::reactive(input$GREEN)
       BLUE_value <- shiny::reactive(input$BLUE)
-      Tolerance_value <- shiny::reactive(input$Tolerance)
+      Tolerance_value_RED <- shiny::reactive(input$Tolerance_RED)
+      Tolerance_value_GREEN <- shiny::reactive(input$Tolerance_GREEN)
+      Tolerance_value_BLUE <- shiny::reactive(input$Tolerance_BLUE)
+      Tolerance_value_FINAL <- shiny::reactive(input$Tolerance_Final)
       
       Normalize_post <- shiny::reactive(input$Post_Normalize)
       Equalize_post <- shiny::reactive(input$Post_Equalize)
@@ -321,7 +340,8 @@ Color_deconvolution_App_launcher <- cmpfun(
         #Extract Image
         Photo <- EBImage_color_thresholder(Image = Photo, 
                                            Target = c(RED_value(), GREEN_value(), BLUE_value()),
-                                           Tolerance = Tolerance_value())
+                                           Color_Tolerance = c(Tolerance_value_RED(), Tolerance_value_GREEN(), Tolerance_value_BLUE()),
+                                           Final_Tolerance = Tolerance_value_FINAL())
         #Return to magick object
         Photo <- magick::image_read(Photo)
         return(Photo)
@@ -466,7 +486,8 @@ Color_deconvolution_App_launcher <- cmpfun(
                                    RED_value = input$RED,
                                    GREEN_value = input$GREEN,
                                    BLUE_value = input$BLUE,
-                                   Tolerance_value = input$Tolerance,
+                                   Color_Tolerance = c(input$Tolerance_RED, input$Tolerance_GREEN, input$Tolerance_BLUE),
+                                   Final_Tolerance = input$Tolerance_Final,
                                    
                                    Post_normalize = as.logical(input$Post_Normalize),
                                    Post_equalize = as.logical(input$Post_Equalize),
@@ -544,34 +565,30 @@ Color_deconvolution_App_launcher <- cmpfun(
         Photo <- Photo_original()
         
         #Modify resolution before printing
-        if(as.numeric(Resolution()) == 1000){
-          Photo <- Photo %>% magick::image_raster()
-        }
-        else{
+        if(as.numeric(Resolution()) != 1000){
           Image_Resolution <- str_c("X", Resolution())
           Photo <- magick::image_scale(Photo, Image_Resolution)
-          Photo <- Photo %>% magick::image_raster()
         }
         
-        if(!is.null(ranges$x)){
-          Photo <- Photo %>% dplyr::filter(x >= ranges$x[[1]],
-                                           x <= ranges$x[[2]],
-                                           y >= ranges$y[[1]],
-                                           y <= ranges$y[[2]])
-        }
+        #Get image info
+        Image_information <- magick::image_info(Photo)
+        Width <- Image_information$width
+        Height <- Image_information$height
         
-        
-        #Generate the photo
-        Photo_plot <- ggplot() + geom_raster(aes(x = x, y = y, fill = col), data = Photo) + 
-          scale_fill_identity() +
-          coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
-          theme(axis.title = element_blank(),
-                axis.text = element_blank(),
-                axis.ticks = element_blank(),
-                axis.line = element_blank(),
-                panel.background = element_rect(fill = "black"),
-                panel.grid = element_blank())
-        Photo_plot
+        #Generate the plot as annotation_raster
+        return(
+          ggplot() +
+            annotation_raster(Photo, xmin = 0, xmax = Width, ymin = 0, ymax = Height, interpolate = TRUE)+
+            scale_x_continuous(limits = c(0, Width)) +
+            scale_y_continuous(limits = c(0, Height)) +
+            coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+            theme(axis.title = element_blank(),
+                  axis.text = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.line = element_blank(),
+                  panel.background = element_rect(fill = "black"),
+                  panel.grid = element_blank())
+        )
       }, res = 300)
       
       #Control the zoom in of the Photo and the other plots
@@ -595,22 +612,28 @@ Color_deconvolution_App_launcher <- cmpfun(
           #If no zoom in required then low down the resolution of the image(always as geom_tile is very computationally slow)
           if(is.null(ranges$x)){
             Image_Resolution <- str_c("X", Resolution())
-            Photo <- magick::image_scale(Photo, "X200")
+            Photo <- magick::image_scale(Photo, "X100")
             Photo <- Photo %>% magick::image_raster()
+            #Reverse pixels to match annotate_raster system
+            Photo$y <- rev(Photo$y)
           }
           
           #If zoom is required then keep original user defined resolution (required to match zoomed in areas)
-          else{
+          if(!is.null(ranges$x)){
             if(as.numeric(Resolution()) == 1000){
               Photo <- Photo %>% magick::image_raster()
+              #Reverse pixels to match annotate_raster system
+              Photo$y <- rev(Photo$y)
             }
             else{
               Image_Resolution <- str_c("X", Resolution())
               Photo <- magick::image_scale(Photo, Image_Resolution)
               Photo <- Photo %>% magick::image_raster()
+              #Reverse pixels to match annotate_raster system
+              Photo$y <- rev(Photo$y)
             }
             
-            #remove pixels
+            #remove pixels outside the scale
             Photo <- Photo %>% dplyr::filter(x >= ranges$x[[1]],
                                              x <= ranges$x[[2]],
                                              y >= ranges$y[[1]],
@@ -653,40 +676,36 @@ Color_deconvolution_App_launcher <- cmpfun(
         return(plot)
       })
       
+      
       #Color extraction (bottom left)
       output$Color <- shiny::renderPlot({
         #Obtain the photo
         Photo <- Color_extracted_photo()
         
         #Modify resolution before printing
-        if(as.numeric(Resolution()) == 1000){
-          Photo <- Photo %>% magick::image_raster()
-        }
-        else{
+        if(as.numeric(Resolution()) != 1000){
           Image_Resolution <- str_c("X", Resolution())
           Photo <- magick::image_scale(Photo, Image_Resolution)
-          Photo <- Photo %>% magick::image_raster()
         }
         
-        if(!is.null(ranges$x)){
-          Photo <- Photo %>% dplyr::filter(x >= ranges$x[[1]],
-                                           x <= ranges$x[[2]],
-                                           y >= ranges$y[[1]],
-                                           y <= ranges$y[[2]])
-        }
-        
-        
-        #Generate the photo
-        Photo_plot <- ggplot() + geom_raster(aes(x = x, y = y, fill = col), data = Photo) + 
-          scale_fill_identity() +
-          coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
-          theme(axis.title = element_blank(),
-                axis.text = element_blank(),
-                axis.ticks = element_blank(),
-                axis.line = element_blank(),
-                panel.background = element_rect(fill = "black"),
-                panel.grid = element_blank())
-        Photo_plot
+        #Get image info
+        Image_information <- magick::image_info(Photo)
+        Width <- Image_information$width
+        Height <- Image_information$height
+        #Generate the plot as annotation_raster
+        return(
+          ggplot() +
+            annotation_raster(Photo, xmin = 0, xmax = Width, ymin = 0, ymax = Height, interpolate = TRUE)+
+            scale_x_continuous(limits = c(0, Width)) +
+            scale_y_continuous(limits = c(0, Height)) +
+            coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+            theme(axis.title = element_blank(),
+                  axis.text = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.line = element_blank(),
+                  panel.background = element_rect(fill = "black"),
+                  panel.grid = element_blank())
+        )
       }, res = 300)
       
       #Final color channel (bottom right)
@@ -695,34 +714,30 @@ Color_deconvolution_App_launcher <- cmpfun(
         Photo <- Color_processed_photo()
         
         #Modify resolution before printing
-        if(as.numeric(Resolution()) == 1000){
-          Photo <- Photo %>% magick::image_raster()
-        }
-        else{
+        if(as.numeric(Resolution()) != 1000){
           Image_Resolution <- str_c("X", Resolution())
           Photo <- magick::image_scale(Photo, Image_Resolution)
-          Photo <- Photo %>% magick::image_raster()
         }
         
-        if(!is.null(ranges$x)){
-          Photo <- Photo %>% dplyr::filter(x >= ranges$x[[1]],
-                                           x <= ranges$x[[2]],
-                                           y >= ranges$y[[1]],
-                                           y <= ranges$y[[2]])
-        }
+        #Get image info
+        Image_information <- magick::image_info(Photo)
+        Width <- Image_information$width
+        Height <- Image_information$height
         
-        
-        #Generate the photo
-        Photo_plot <- ggplot() + geom_raster(aes(x = x, y = y, fill = col), data = Photo) + 
-          scale_fill_identity() +
-          coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
-          theme(axis.title = element_blank(),
-                axis.text = element_blank(),
-                axis.ticks = element_blank(),
-                axis.line = element_blank(),
-                panel.background = element_rect(fill = "black"),
-                panel.grid = element_blank())
-        Photo_plot
+        #Generate the plot as annotation_raster
+        return(
+          ggplot() +
+            annotation_raster(Photo, xmin = 0, xmax = Width, ymin = 0, ymax = Height, interpolate = TRUE)+
+            scale_x_continuous(limits = c(0, Width)) +
+            scale_y_continuous(limits = c(0, Height)) +
+            coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+            theme(axis.title = element_blank(),
+                  axis.text = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.line = element_blank(),
+                  panel.background = element_rect(fill = "black"),
+                  panel.grid = element_blank())
+        )
       }, res = 300)
       
       #If browser is closed end the app
@@ -748,7 +763,7 @@ Image_deconvolution_function <- cmpfun(function(Directory = NULL,
   
   #The expected names in each element of the parameter list
   Adequate_Names <- c("Brightness","Saturation","Hue", "Normalize", "Equalize", "Contrast", "Sharpen", "Reduce_color",
-                      "Max_color", "RED_value", "GREEN_value", "BLUE_value", "Tolerance_value", 
+                      "Max_color", "RED_value", "GREEN_value", "BLUE_value", "Color_Tolerance", "Final_Tolerance", 
                       "Post_normalize", "Post_equalize", "Erode", "Erode_kern", "Erode_rounds", "Dilate", "Dilate_kern", "Dilate_rounds")
   Deconvolution_Parameters <- Deconvolution_parameters
   Names_ok <- map_lgl(Deconvolution_Parameters, function(Channel) identical(names(Channel), Adequate_Names)) #Check that the names are equal
@@ -774,7 +789,8 @@ Image_deconvolution_function <- cmpfun(function(Directory = NULL,
                     RED_value_OK = Channel[["RED_value"]] >= 0 & Channel[["RED_value"]] <= 255,
                     GREEN_value_OK = Channel[["GREEN_value"]] >= 0 & Channel[["GREEN_value"]] <= 255,
                     BLUE_value_OK = Channel[["BLUE_value"]] >= 0 & Channel[["BLUE_value"]] <= 255,
-                    Tolerance_value_OK = all(is.numeric(Channel[["Tolerance_value"]]), Channel[["Tolerance_value"]] >= 0, Channel[["Tolerance_value"]] <= 1),
+                    Color_Tolerance_value_OK = all(is.numeric(Channel[["Color_Tolerance"]]), length(Channel[["Color_Tolerance"]]) == 3, all(Channel[["Color_Tolerance"]] >= 0), all(Channel[["Color_Tolerance"]] <= 1)),
+                    Final_Tolerance_value_OK = all(is.numeric(Channel[["Final_Tolerance"]]), Channel[["Final_Tolerance"]] >= 0, Channel[["Final_Tolerance"]] <= 1),
                     Post_normalize_OK = is.logical(Channel[["Post_normalize"]]),
                     Post_equalize_OK = is.logical(Channel[["Post_equalize"]]),
                     Erode_OK = is.logical(Channel[["Erode"]]),
@@ -784,6 +800,7 @@ Image_deconvolution_function <- cmpfun(function(Directory = NULL,
                     Dilate_kern_OK = all(is.numeric(Channel[["Dilate_kern"]]), Channel[["Dilate_kern"]]>0),
                     Dilate_rounds_OK = all(is.numeric(Channel[["Dilate_rounds"]]), Channel[["Erode_rounds"]]>0)
     )
+    
     #Messages to deploy
     Messages_to_return <- c(Brightness_OK = "Brightness must be a positive numeric value between 0 and 100",
                             Saturation_OK = "Saturation must be a positive numeric value between 0 and 100",
@@ -797,7 +814,8 @@ Image_deconvolution_function <- cmpfun(function(Directory = NULL,
                             RED_value_OK = "RED_value must be a numeric value between 0 and 255",
                             GREEN_value_OK = "GREEN_value must be a numeric value between 0 and 255",
                             BLUE_value_OK = "BLUE_value must be a numeric value between 0 and 255",
-                            Tolerance_value_OK = "Tolerance value must be a numeric value between 0 and 1",
+                            Color_Tolerance_value_OK = "Tolerance value must be a numeric vector of length = 3, containing values between 0 and 1",
+                            Final_Tolerance_value_OK = "Final_Tolerance must be a single numeric value between 0 and 1",
                             Post_normalize_OK = "Post_normalize must be a logical value",
                             Post_equalize_OK = "Post_equalize must be a logical value",
                             Erode_OK = "Erode must be a logical value",
@@ -1539,7 +1557,7 @@ segmentator_tester_app <- cmpfun(
           Perform_nuclear_channel_processing = as.logical(input$Pre_processing),
           Black_level = input$Min_Image,
           White_level = input$Max_Image,
-          Gamma_level = 10^input$Gamma,
+          Gamma_level = input$Gamma,
           Equalize = as.logical(input$Equalize),
           Opening_kernel_size = input$Opening,
           Closing_kernel_size = input$Closing
@@ -2001,6 +2019,1303 @@ Cell_segmentator_quantificator <- cmpfun(
     return(map_dfr(SEGMENTATION_RESULTS, bind_rows))
     
   }, options = list(optimize = 3))
+
+Image_thresholding_app_launcher <- cmpfun(
+  function(Directory = NULL,
+           Ordered_Channels = NULL){
+    #check that the directory provided contains at least one file
+    if(length(dir(Directory)) <1 ) stop("No files found in the Directory provided")
+    
+    #Obtain image names and channel names
+    Real_Images <- dir(Directory, full.names = FALSE)
+    Complete_names <- dir(Directory, full.names = TRUE)
+    Channels_in_images <- Ordered_Channels
+    
+    #BUILD THE USER INTERFACE
+    {
+      user_interface <- shiny::fluidPage(
+        
+        #Set the title
+        shiny::titlePanel("Thresholding exploration APP"),
+        
+        #We want a two panel layout, one in the left containing the input parameters and the output in the right
+        shiny::sidebarLayout(
+          #Set the first column (which contains the user defined parameters)
+          shiny::sidebarPanel(
+            #ID and width
+            id="sidebar",
+            
+            #Image to display and resolution
+            shiny::h4("Image parameters"),
+            shiny::fluidRow(
+              #Select the real image to be displayed
+              shiny::column(6, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
+              #Select the channel to be displayed
+              shiny::column(4, shiny::selectInput("Channel", "Channel to display", Channels_in_images, multiple = FALSE)),
+              #Select the resolution
+              shiny::column(2, shiny::selectInput("Res", "Image Res", c(Low = 150, Mid = 300, high = 600, Original = 1000), selected = 150, multiple = FALSE))
+            ),
+            
+            #Channels included in tissue threshold
+            shiny::h4("Tissue mask parameters"),
+            shiny::fluidRow(
+              #Select the channels to include in the tissue mask generation
+              shiny::column(3, shinyWidgets::virtualSelectInput("Tissue_mask_channels", label = "Channels used",
+                                                                choices = Channels_in_images, 
+                                                                search = TRUE,
+                                                                multiple = TRUE
+              )),
+              #Select the type of threshold being used for tissue mask
+              shiny::column(3, shiny::selectInput("Tissue_threshold_type", "Threshold type", c("Otsu", "Arbitrary", "Absolute"), multiple = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Tissue_threshold_type == 'Arbitrary'",shiny::textInput("Tissue_value", "Value", value = "0.01"))),
+              #Select tissue mask blurr
+              shiny::column(2, shiny::selectInput("Tissue_blurr", "Blurr", c(TRUE,FALSE), selected = FALSE, multiple = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Tissue_blurr == 'TRUE'",shiny::textInput("Tissue_sigma", "Sigma", value = "0.5")))
+            ),
+            
+            shiny::h4("Tissue thresholding parameters"),
+            shiny::fluidRow(
+              #Local or global thresholding
+              shiny::column(3, shiny::selectInput("Target_threshold_local", "Type", c("Global", "Local"), selected = "Local", multiple = FALSE)),
+              
+              #Threshold type
+              shiny::column(3, shiny::selectInput("Target_threshold_type", "Type", c("Otsu", "Arbitrary", "Multilevel"), selected = "Otsu", multiple = FALSE)),
+              
+              #Select target mask blurr
+              shiny::column(3, shiny::selectInput("Target_blurr", "Blurr", c(TRUE,FALSE), selected = FALSE, multiple = FALSE)),
+              shiny::column(3, shiny::conditionalPanel(condition = "input.Target_blurr == 'TRUE'",shiny::textInput("Target_sigma", "Sigma", value = "0.5")))
+            ),
+            #Conditional panels for values
+            shiny::fluidRow(
+              shiny::column(6, shiny::conditionalPanel(condition = "input.Target_threshold_type == 'Arbitrary' || input.Target_threshold_type == 'Multilevel'",
+                                                       shiny::textInput("Target_Value", "Value", value = NULL))),
+              shiny::column(6, shiny::conditionalPanel(condition = "input.Target_threshold_type == 'Multilevel'",
+                                                       shiny::numericInput("Target_Levels", "Levels", value = 3, min = 3, max = NA, step = 1)))
+            ),
+            
+            shiny::fluidRow(shiny::column(2, shiny::actionButton("GO_button", shiny::icon("bolt-lightning"), label = "GO!")))
+            
+          ),
+          
+          #Set the outcome columns
+          shiny::mainPanel(
+            #First row will have the Photo and the overview of marker intensity by cell
+            shiny::fluidRow(
+              shiny::column(6, shiny::plotOutput("Photo",
+                                                 width = "auto",
+                                                 #Controls for zoom in
+                                                 dblclick = "Photo_dblclick",
+                                                 brush = shiny::brushOpts(id = "Photo_brush",
+                                                                          resetOnNew = TRUE)
+              )
+              ),
+              shiny::column(6, shiny::plotOutput("Tissue_mask",
+                                                 width = "auto"))
+            ),
+            #Second row will contain the positive cells and the histogram
+            shiny::fluidRow(
+              shiny::column(6, shiny::plotOutput("Target_mask",
+                                                 width = "auto")),
+              shiny::column(6, shiny::verbatimTextOutput("Pixel_summary"))
+            )
+          )
+        ),
+        shiny::tags$head(shiny::tags$style(
+          htmltools::HTML('
+         #sidebar {
+            background-color: #fc92fc;
+        }
+
+        body, label, input, button, select { 
+          font-family: "Arial";
+        }')))
+      )
+    }
+    
+    
+    #BUILD THE SERVER
+    server <- function(input, output, session){
+      #First generate the reactives (those that need to be continuously tested for reactivity)
+      Photo_name <- shiny::reactive(str_c(Directory, "/", input$Real_Image_name))
+      Channel_index <- shiny::reactive(which(input$Channel == Ordered_Channels))
+      Image_resolution <- shiny::reactive(input$Res)
+      #Generate a reactive that controls the zoom in
+      ranges <- shiny::reactiveValues(x = NULL, y = NULL)
+      #Generate the reactive that controls the results in the panel
+      Image_results <- shiny::reactiveValues(Tissue_mask = NULL,
+                                             Target_mask = NULL,
+                                             Pixel_data = NULL)
+      
+      
+      #Import the actual photo
+      Photo_reactive <- shiny::reactive({
+        #Import the Photo
+        Photo <- magick::image_read(Photo_name())[Channel_index()]
+        return(Photo)
+      })
+      
+      #Print the photo
+      output$Photo <- shiny::renderPlot({
+        #Obtain the photo
+        Photo <- Photo_reactive()
+        #Change resolution if required
+        if(as.numeric(Image_resolution()) < 1000){
+          Image_Resolution <- str_c("X", Image_resolution())
+          Photo <- magick::image_scale(Photo, geometry = Image_Resolution)
+        }
+        #Get image info
+        Image_information <- magick::image_info(Photo)
+        Width <- Image_information$width
+        Height <- Image_information$height
+        
+        #Generate the plot as annotation_raster
+        return(
+          ggplot() +
+            annotation_raster(Photo, xmin = 0, xmax = Width, ymin = 0, ymax = Height, interpolate = TRUE)+
+            scale_x_continuous(limits = c(0, Width)) +
+            scale_y_continuous(limits = c(0, Height)) +
+            coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+            theme(axis.title = element_blank(),
+                  axis.text = element_blank(),
+                  axis.ticks = element_blank(),
+                  axis.line = element_blank(),
+                  panel.background = element_rect(fill = "black"),
+                  panel.grid = element_blank())
+        )
+      }, res = 300)
+      
+      #Control the zoom in of the Photo and the other plots
+      shiny::observeEvent(input$Photo_dblclick, {
+        brush <- input$Photo_brush
+        if (!is.null(brush)) {
+          ranges$x <- c(brush$xmin, brush$xmax)
+          ranges$y <- c(brush$ymin, brush$ymax)
+        } else {
+          ranges$x <- NULL
+          ranges$y <- NULL
+        }
+      })
+      
+      shiny::observeEvent(input$GO_button, {
+        #First we need to import the photograph as EBI, select the required channels and transform it to a cytomapper object
+        shiny::showModal(modalDialog("Importing image", footer=NULL))
+        Image <- magick::image_read(Photo_name())
+        Image <- Image[which(Ordered_Channels %in% input$Tissue_mask_channels)]
+        Image <- magick::as_EBImage(Image)
+        shiny::removeModal()
+        
+        #Generate tissue mask
+        shiny::showModal(modalDialog("Generating tissue mask", footer=NULL))
+        Tissue_mask <- Tissue_mask_generator(Image = Image,
+                                             Threshold_type = input$Tissue_threshold_type,
+                                             Threshold_value = as.numeric(input$Tissue_value),
+                                             Blurr = as.logical(input$Tissue_blurr),
+                                             Sigma = as.numeric(input$Tissue_sigma))
+        Image_results$Tissue_mask <- Tissue_mask
+        shiny::removeModal()
+        
+        #Perform tissue thresholding according to user preferences
+        shiny::showModal(modalDialog("Thresholding pixels", footer=NULL))
+        Image_index <- match(input$Channel, input$Tissue_mask_channels)
+        Target_image <- EBImage::getFrame(y = Image, i = Image_index)
+        
+        
+        #If Arbitrary (Global or local)
+        if(input$Target_threshold_type == "Arbitrary"){
+          Target_result <- Pixel_thresholder(Target = Target_image ,
+                                             Tissue_mask = Tissue_mask,
+                                             Threshold_type = "Arbitrary",
+                                             Threshold_value = as.numeric(input$Target_Value),
+                                             Blurr = as.logical(input$Target_blurr),
+                                             Sigma = as.numeric(input$Target_sigma)
+          )
+          Image_results$Target_mask <- Target_result
+        }
+        
+        #If local and Otsu
+        if(all(input$Target_threshold_type == "Otsu", input$Target_threshold_local == "Local")){
+          Target_result <- Pixel_thresholder(Target = Target_image ,
+                                             Tissue_mask = Tissue_mask,
+                                             Threshold_type = "Otsu",
+                                             Threshold_value = NULL,
+                                             Blurr = as.logical(input$Target_blurr),
+                                             Sigma = as.numeric(input$Target_sigma)
+          )
+          Image_results$Target_mask <- Target_result
+        }
+        
+        #If global and Otsu
+        if(all(input$Target_threshold_type == "Otsu", input$Target_threshold_local == "Global")){
+          shiny::showModal(modalDialog("Calculating global Otsu images taking into account all images in Directory. This can take a while", footer=NULL))
+          #Calculate a Tissue mask list
+          Tissue_mask_list <- map(seq_along(1:length(Complete_names)), 
+                                  function(Image_index){
+                                    Image <- magick::image_read(Complete_names[Image_index])[which(Ordered_Channels %in% input$Tissue_mask_channels)]
+                                    Image <- magick::as_EBImage(Image)
+                                    
+                                    #First generate the tissue mask and then remove the original image (no longer required)
+                                    Tissue_mask <- Tissue_mask_generator(Image = Image,
+                                                                         Threshold_type = input$Tissue_threshold_type,
+                                                                         Threshold_value = as.numeric(input$Tissue_value),
+                                                                         Blurr = as.logical(input$Tissue_blurr),
+                                                                         Sigma = as.numeric(input$Tissue_sigma))
+                                    rm(Image)
+                                    gc()
+                                    return(Tissue_mask)
+                                  })
+          #Generate a full vector containing all image values with an applied tissue mask
+          Composite_Image_list <- map2(.x = 1:length(Complete_names), .y = Tissue_mask_list, function(.x, .y){
+            #Import target image
+            Image <- magick::image_read(Complete_names[.x])[which(Ordered_Channels %in% input$Tissue_mask_channels)]
+            Target_Image <- Image[which(input$Channel == input$Tissue_mask_channels)]
+            Target_Image <- magick::as_EBImage(Target_Image)
+            
+            #Turn target image values outside tissue mask to 0
+            Target_Image[!.y] <- 0
+            
+            #return as vector
+            return(as.vector(Target_Image))
+          })
+          
+          #Generare a unified vector using all images
+          Common_vector <- unlist(Composite_Image_list)
+          #Apply otsu algorithm
+          Threshold_global_otsu <- EBImage::otsu(array(Common_vector, dim = c(1, length(Common_vector))), range = c(min(Common_vector), max(Common_vector)), levels = length(unique(Common_vector)))
+          Target_result <- Pixel_thresholder(Target = Target_image ,
+                                             Tissue_mask = Tissue_mask,
+                                             Threshold_type = "Arbitrary",
+                                             Threshold_value = Threshold_global_otsu,
+                                             Blurr = as.logical(input$Target_blurr),
+                                             Sigma = as.numeric(input$Target_sigma)
+          )
+          Image_results$Target_mask <- Target_result
+        }
+        
+        #If Multilevel input$Target_Value != "" (Global or local)
+        if(all(input$Target_threshold_type == "Multilevel", input$Target_Value != "")){
+          #Generate the adequate parsing of expression contained in value
+          values_for_function <- eval(parse(text = as.character(input$Target_Value)))
+          
+          Target_result <- Pixel_Multilevel_thresholder(Target = Target_image,
+                                                        Tissue_mask = Tissue_mask,
+                                                        Threshold_values = values_for_function,
+                                                        Blurr = as.logical(input$Target_blurr),
+                                                        Sigma = as.numeric(input$Target_sigma)
+          )
+          Target_result$Image <- Target_result$Image/length(values_for_function)
+          Image_results$Target_mask <- Target_result
+        }
+        
+        #If Multilevel Local and input$Target_Value == ""
+        if(all(input$Target_threshold_type == "Multilevel", input$Target_Value == "", input$Target_threshold_local == "Local")){
+          Threshold_levels <- imagerExtra::ThresholdML(imager::cimg(array(as.vector(Target_image), dim = c(1, length(as.vector(Target_image)), 1, 1))), 
+                                                       k = (as.numeric(input$Target_Levels)-1),
+                                                       returnvalue = TRUE)
+          
+          Target_result <- Pixel_Multilevel_thresholder(Target = Target_image,
+                                                        Tissue_mask = Tissue_mask,
+                                                        Threshold_values = Threshold_levels,
+                                                        Blurr = as.logical(input$Target_blurr),
+                                                        Sigma = as.numeric(input$Target_sigma)
+          )
+          Target_result$Image <- Target_result$Image/length(Threshold_levels)
+          Image_results$Target_mask <- Target_result
+        }
+        
+        #If Multilevel Global and input$Target_Value == ""
+        if(all(input$Target_threshold_type == "Multilevel", input$Target_Value == "", input$Target_threshold_local == "Global")){
+          shiny::showModal(modalDialog("Calculating global Multilevels images taking into account all images in Directory. This can take a while", footer=NULL))
+          #Calculate a Tissue mask list
+          Tissue_mask_list <- map(seq_along(1:length(Complete_names)), 
+                                  function(Image_index){
+                                    Image <- magick::image_read(Complete_names[Image_index])[which(Ordered_Channels %in% input$Tissue_mask_channels)]
+                                    Image <- magick::as_EBImage(Image)
+                                    
+                                    #First generate the tissue mask and then remove the original image (no longer required)
+                                    Tissue_mask <- Tissue_mask_generator(Image = Image,
+                                                                         Threshold_type = input$Tissue_threshold_type,
+                                                                         Threshold_value = as.numeric(input$Tissue_value),
+                                                                         Blurr = as.logical(input$Tissue_blurr),
+                                                                         Sigma = as.numeric(input$Tissue_sigma))
+                                    rm(Image)
+                                    gc()
+                                    return(Tissue_mask)
+                                  })
+          #Generate a full vector containing all image values with an applied tissue mask
+          Composite_Image_list <- map2(.x = 1:length(Complete_names), .y = Tissue_mask_list, function(.x, .y){
+            #Import target image
+            Image <- magick::image_read(Complete_names[.x])[which(Ordered_Channels %in% input$Tissue_mask_channels)]
+            Target_Image <- Image[which(input$Channel == input$Tissue_mask_channels)]
+            Target_Image <- magick::as_EBImage(Target_Image)
+            
+            #Turn target image values outside tissue mask to 0
+            Target_Image[!.y] <- 0
+            
+            #return as vector
+            return(as.vector(Target_Image))
+          })
+          
+          #Generare a unified vector using all images
+          Common_vector <- unlist(Composite_Image_list)
+          
+          Threshold_levels <- imagerExtra::ThresholdML(imager::cimg(array(as.vector(Common_vector), dim = c(1, length(as.vector(Common_vector)), 1, 1))), 
+                                                       k = (as.numeric(input$Target_Levels)-1),
+                                                       returnvalue = TRUE)
+          Target_result <- Pixel_Multilevel_thresholder(Target = Target_image,
+                                                        Tissue_mask = Tissue_mask,
+                                                        Threshold_values = Threshold_levels,
+                                                        Blurr = as.logical(input$Target_blurr),
+                                                        Sigma = as.numeric(input$Target_sigma)
+          )
+          Target_result$Image <- Target_result$Image/length(Threshold_levels)
+          Image_results$Target_mask <- Target_result
+        }
+        
+        #Add final parameters
+        Image_results$Target_mask$mask_channels <- str_c(input$Tissue_mask_channels, collapse = ", ")
+        Image_results$Target_mask$Tissue_mask <- c("Threshold_type" = input$Tissue_threshold_type,
+                                                   "Value" = as.character(input$Tissue_value),
+                                                   "Blurr" = as.character(input$Tissue_blurr),
+                                                   "Sigma" = as.character(input$Tissue_sigma))
+        
+        Image_results$Target_mask$Target <- c("Threshold_type" = input$Target_threshold_type,
+                                              "Value" = as.character(input$Target_Value),
+                                              "Blurr" = as.character(input$Target_blurr),
+                                              "Sigma" = as.character(input$Target_sigma),
+                                              "Type" = as.character(input$Target_threshold_local))
+        Image_results$Target_mask$Image_analized <- input$Real_Image_name
+        
+        shiny::removeModal()
+      })
+      
+      #Tissue mask output
+      output$Tissue_mask <- shiny::renderPlot({
+        #If no plot has been generated the print a plot
+        if(is.null(Image_results[["Tissue_mask"]])) ggplot()
+        else{
+          Photo <- Image_results[["Tissue_mask"]] 
+          Photo[Photo] <- 1
+          Photo <- magick::image_read(Photo)
+          #Change resolution if required
+          if(as.numeric(Image_resolution()) < 1000){
+            Image_Resolution <- str_c("X", Image_resolution())
+            Photo <- magick::image_scale(Photo, geometry = Image_Resolution)
+          }
+          #Get image info
+          Image_information <- magick::image_info(Photo)
+          Width <- Image_information$width
+          Height <- Image_information$height
+          
+          #Generate the plot as annotation_raster
+          return(
+            ggplot() +
+              annotation_raster(Photo, xmin = 0, xmax = Width, ymin = 0, ymax = Height, interpolate = TRUE)+
+              scale_x_continuous(limits = c(0, Width)) +
+              scale_y_continuous(limits = c(0, Height)) +
+              coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+              theme(axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.ticks = element_blank(),
+                    axis.line = element_blank(),
+                    panel.background = element_rect(fill = "black"),
+                    panel.grid = element_blank())
+          )
+          
+        }
+      })
+      
+      #Target output
+      output$Target_mask <- shiny::renderPlot({
+        #If no plot has been generated the print a plot
+        if(is.null(Image_results[["Target_mask"]])) ggplot()
+        else{
+          Photo <- Image_results[["Target_mask"]][["Image"]]
+          Photo <- Photo*1
+          Photo <- magick::image_read(Photo)
+          #Change resolution if required
+          if(as.numeric(Image_resolution()) < 1000){
+            Image_Resolution <- str_c("X", Image_resolution())
+            Photo <- magick::image_scale(Photo, geometry = Image_Resolution)
+          }
+          #Get image info
+          Image_information <- magick::image_info(Photo)
+          Width <- Image_information$width
+          Height <- Image_information$height
+          
+          #Generate the plot as annotation_raster
+          return(
+            ggplot() +
+              annotation_raster(Photo, xmin = 0, xmax = Width, ymin = 0, ymax = Height, interpolate = TRUE)+
+              scale_x_continuous(limits = c(0, Width)) +
+              scale_y_continuous(limits = c(0, Height)) +
+              coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+              theme(axis.title = element_blank(),
+                    axis.text = element_blank(),
+                    axis.ticks = element_blank(),
+                    axis.line = element_blank(),
+                    panel.background = element_rect(fill = "black"),
+                    panel.grid = element_blank())
+          )
+          
+        }
+      })
+      
+      #Summary of results
+      output$Pixel_summary <- shiny::renderPrint({
+        if(is.null(Image_results[["Target_mask"]])) cat("Awaiting initial test")
+        else{
+          Result_list <- Image_results[["Target_mask"]]
+          Result_list <- Result_list[-1]
+          
+          
+          Result_list
+        }
+        
+      }
+      )
+      
+      #If browser is closed end the app
+      session$onSessionEnded(function() { shiny::stopApp() })
+    }
+    
+    #Run the server
+    message("Always stop current R execution if you want to continue with your R session")
+    shiny::shinyApp(user_interface, server)
+  },
+  options = list(optimize = 3))
+
+Tissue_mask_generator <- cmpfun(
+  function(Image = NULL,
+           Threshold_type = NULL,
+           Threshold_value = NULL,
+           Blurr = NULL,
+           Sigma = NULL){
+    
+    #First if Image has more than 1 frame sum all frames into 1 and normalize result
+    if(EBImage::numberOfFrames(Image) > 1) {
+      Image <- purrr::reduce(EBImage::getFrames(Image),
+                             function(Image1, Image2) Image1 + Image2)
+      Image <- Image / max(Image)
+    }
+    #If not normalized to max Image value
+    else{
+      Image <- Image / max(Image)
+    }
+    
+    #Perform image blurring if required
+    if(Blurr){
+      Image <- EBImage::gblur(Image, sigma = Sigma, boundary = "replicate")
+    }
+    
+    
+    #Perform Otsu thresholding if required
+    if(Threshold_type == "Otsu"){
+      Otsu_thres <- EBImage::otsu(Image)
+      Image <- Image >= Otsu_thres
+      return(Image)
+    }
+    
+    #Perform thresholding according to arbitrary value
+    if(Threshold_type == "Arbitrary"){
+      Image <- Image >= Threshold_value
+      return(Image)
+    }
+    
+    #Perform thresholding if any pixel is above 0
+    if(Threshold_type == "Absolute"){
+      Image <- Image > 0
+      return(Image)
+    }
+  },
+  options = list(optimize = 3))
+
+Pixel_thresholder <- cmpfun(
+  function(Target = NULL,
+           Tissue_mask = NULL,
+           Threshold_type = NULL,
+           Threshold_value = NULL,
+           Blurr = NULL,
+           Sigma = NULL){
+    
+    #Import Image
+    Image <- Target
+    
+    #Apply blurring if required
+    #Perform image blurring if required
+    if(Blurr){
+      Image <- EBImage::gblur(Image, sigma = Sigma, boundary = "replicate")
+    }
+    
+    #Turn to 0 pixels outside tissue mask
+    Target[!Tissue_mask] <- 0
+    
+    #Perform Otsu thresholding if required
+    if(Threshold_type == "Otsu"){
+      Otsu_thres <- EBImage::otsu(Image)
+      Image <- Image >= Otsu_thres
+      return(list(Image = Image,
+                  Pixel_count = sum(Image),
+                  Total_foreground_pixels = sum(Tissue_mask),
+                  Threshold_value = Otsu_thres)
+      )
+    }
+    
+    #Perform thresholding according to arbitrary value
+    if(Threshold_type == "Arbitrary"){
+      Image <- Image >= Threshold_value
+      return(list(Image = Image,
+                  Pixel_count = sum(Image),
+                  Total_foreground_pixels = sum(Tissue_mask),
+                  Threshold_value = Threshold_value)
+      )
+    }
+  },
+  options = list(optimize = 3)
+)
+
+Pixel_Multilevel_thresholder <- cmpfun(
+  function(Target = NULL,
+           Tissue_mask = NULL,
+           Threshold_values = NULL,
+           Blurr = NULL,
+           Sigma = NULL){
+    
+    #Import Image
+    Image <- Target
+    
+    #Apply blurring if required
+    if(Blurr){
+      Image <- EBImage::gblur(Image, sigma = Sigma, boundary = "replicate")
+    }
+    
+    #Turn to 0 pixels outside tissue mask
+    Target[!Tissue_mask] <- 0
+    
+    #For every threshold value, calculate a binary image (logical) then sum up the results
+    Image <- purrr::reduce(map(Threshold_values, function(Threshold) Image > Threshold),
+                           function(Image1, Image2) Image1 + Image2
+    )
+    
+    Pixel_counts <- map_dbl(unique(as.vector(Image)), function(Value) sum(Image == Value))
+    names(Pixel_counts) <- as.character(unique(as.vector(Image)))
+    
+    #If pixel count number is above total pixels then remove pixels from the lowest group (the 0 one)
+    if(sum(Pixel_counts) > sum(Tissue_mask)){
+      Diff <- sum(Pixel_counts) - sum(Tissue_mask)
+      Pixel_counts[1] <- Pixel_counts[1] - Diff
+    }
+    
+    return(list(
+      Image = Image,
+      Pixel_count = Pixel_counts,
+      Total_foreground_pixels = sum(Tissue_mask),
+      Threshold_value = str_c(Threshold_values, collapse = "_")
+    ))
+  },
+  options = list(optimize = 3)
+)
+
+MFI_calculator <- 
+  cmpfun(
+    function(Target = NULL,
+             Tissue_mask = NULL){
+      #Replace non tissue pixels for 0
+      Target[!Tissue_mask] <- 0
+      #Calculate MFI (sum of intensity divided by total foreground pixels)
+      return(list(MFI = sum(Target) / sum(Tissue_mask),
+                  Total_foreground_pixels = sum(Tissue_mask))
+      )
+    },
+    options = list(optimize = 3)
+  )
+
+#This final function will generate a tissue mask that combines tissue and a specific marker
+Multi_mask_generator <- cmpfun(
+  function(...){
+    purrr::reduce(...,
+                  function(Image1, Image2) Image1 & Image2)
+    
+  }
+)
+
+Pixel_Threshold_calculator <- cmpfun(function(
+    N_cores = NULL,  
+    Directory = NULL,
+    Ordered_Channels = NULL,
+    Channels_to_keep = NULL,
+    Target_channel = NULL,
+    Save_processed_images = NULL,
+    Output_Directory = NULL,
+    
+    Local_thresholding = NULL,
+    Threshold_type = NULL,
+    Threshold_value = NULL,
+    Levels = NULL,
+    
+    Threshold_type_tissueMask = NULL,
+    Threshold_value_tissueMask = NULL,
+    Blurr_tissueMask = NULL,
+    Sigma_tissueMask = NULL,
+    
+    Blurr_target = NULL,
+    Sigma_target = NULL
+){
+  
+  on.exit({
+    future::plan("future::sequential")
+    gc()
+  })
+  
+  #Argument check
+  Argument_checker <- c(N_cores_OK = (N_cores >= 1 & N_cores%%1 == 0),
+                        Empty_directory = length(dir(Directory)) >= 1,
+                        Channels_OK = all(Channels_to_keep %in% Ordered_Channels),
+                        Target_channel_OK = Target_channel %in% Channels_to_keep,
+                        Save_processed_images_OK = is.logical(Save_processed_images),
+                        Output_Directory_OK = if(Save_processed_images){
+                          length(dir(Output_Directory)) == 0
+                        }else(TRUE),
+                        
+                        Local_thresholding_OK = is.logical(Local_thresholding),
+                        Threshold_type_OK = Threshold_type %in% c("Otsu", "Arbitrary", "Multilevel"),
+                        Threshold_value_OK = if(Threshold_type == "Arbitrary"){
+                          all(is.numeric(Threshold_value), Threshold_value >=0, Threshold_value <= 1)
+                        } else if(Threshold_type == "Multilevel"){
+                          any(is.null(Threshold_value),
+                              all(length(Threshold_value) > 1, is.numeric(Threshold_value), dplyr::if_else(Threshold_value >= 0 & Threshold_value <= 1, TRUE, FALSE))
+                          )
+                        } else(TRUE),
+                        Levels_OK = if(Threshold_type == "Multilevel"){
+                          all(is.numeric(Levels), Levels%%1 == 0, Levels >= 2)
+                        }else(TRUE),
+                        Threshold_type_tissueMask_OK = Threshold_type_tissueMask %in% c("Otsu", "Arbitrary", "Absolute"),
+                        Threshold_value_tissueMask_OK = if(Threshold_type_tissueMask == "Arbitrary"){
+                          all(is.numeric(Threshold_value_tissueMask), Threshold_value_tissueMask >=0, Threshold_value_tissueMask <= 1)
+                        }else(TRUE),
+                        Blurr_tissueMask_OK = is.logical(Blurr_tissueMask),
+                        Sigma_tissueMask_OK = if(Blurr_tissueMask){
+                          all(is.numeric(Sigma_tissueMask), Sigma_tissueMask > 0)
+                        }else(TRUE),
+                        Blurr_target_OK = is.logical(Blurr_target),
+                        Sigma_target_OK = if(Blurr_target){
+                          all(is.numeric(Sigma_target), Sigma_target > 0)
+                        }else(TRUE)
+  )
+  
+  Stop_messages <- c(N_cores_OK = "N_cores must be an integer value > 0",
+                     Empty_directory = "No files found at the directory provided. Please check out the path.",
+                     Channels_OK = str_c(
+                       "The following channels are not present the channel names provided: ",
+                       str_c(Channels_to_keep[!(Channels_to_keep %in% Ordered_Channels)], collapse = ", "),
+                       sep = ""),
+                     Target_channel_OK = str_c(Target_channel, " not present in ", str_c(Channels_to_keep, collapse = ", "), collapse = ""),
+                     Save_processed_images_OK = "Save_processed_images must be a logical value",
+                     Output_Directory_OK = "Output_Directory must be an empty folder",
+                     Local_thresholding_OK = "Local_thresholding must be a logical value",
+                     Threshold_type_OK = "Threshold_type must be one of the following: Otsu, Arbitrary, Multilevel",
+                     Threshold_value_OK = "Threshold_value must be a single numeric value between 0 and 1 if Arbitrary or multiple numeric values between 0 and 1 for Multilevel",
+                     Levels_OK = "Levels must be an integer value > 1",
+                     Threshold_type_tissueMask_OK = "Threshold_type_TissueMask must be one of the following: Otsu, Arbitrary, Absolute",
+                     Threshold_value_tissueMask_OK = "Threshold_value_tissueMask must be a single numeric value between 0 and 1",
+                     Blurr_tissueMask_OK = "Blurr_tissueMask must be a logical value",
+                     Sigma_tissueMask_OK = "Sigma_tissueMask must be a positive numeric value > 0",
+                     Blurr_target_OK = "Blurr_target must be a logical value",
+                     Sigma_target_OK = "Sigma_target must be a positive numeric value > 0"
+  )
+  #Check arguments and stop if necessary
+  if(!all(Argument_checker)){
+    stop(cat(Stop_messages[!Argument_checker],
+             fill = sum(!Argument_checker)))
+  }
+  
+  #Get the image full directory
+  Image_names <- dir(Directory, full.names = TRUE)
+  Image_names_short <- dir(Directory, full.names = FALSE)
+  Channels_to_keep_index <- which(Channels_to_keep %in% Ordered_Channels)
+  
+  #If user has decided to use Multilevel and has supplied LEVELS and Thresholds value, Threshold values will prevail
+  if(all(Threshold_type == "Multilevel", !is.null(Threshold_value), !is.null(Levels))){
+    message("Both Threshold_value and Levels provided. Threshold_value will be used in image thresholding")
+  }
+  
+  #The function is branched according to Local vs Global thresholding
+  #First local thresholding
+  if(Local_thresholding){
+    print("Performing Local thresholding")
+    
+    #Will iterate for every image
+    future::plan("future::multisession", workers = N_cores) 
+    options(future.globals.maxSize = Inf, future.rng.onMisuse = "ignore")
+    furrr::furrr_options(scheduling = Inf)
+    
+    RESULTS <- suppressMessages(
+      furrr::future_map(seq_along(1:length(Image_names)), function(Image_index){
+        #Import the image and keep only required channels and the target channel
+        Image <- magick::image_read(Image_names[Image_index])[Channels_to_keep_index]
+        Target_Image <- Image[which(Target_channel == Channels_to_keep)]
+        
+        Image <- magick::as_EBImage(Image)
+        Target_Image <- magick::as_EBImage(Target_Image)
+        
+        #First generate the tissue mask and then remove the original image (no longer required)
+        Tissue_mask <- Tissue_mask_generator(Image = Image,
+                                             Threshold_type = Threshold_type_tissueMask,
+                                             Threshold_value = Threshold_value_tissueMask,
+                                             Blurr = Blurr_tissueMask,
+                                             Sigma = Sigma_tissueMask)
+        rm(Image)
+        gc()
+        
+        #Now we proceed with threshold calculation
+        #First binary thresholding
+        if(Threshold_type != "Multilevel"){ 
+          Target_Image <- Pixel_thresholder(Target = Target_Image,
+                                            Tissue_mask = Tissue_mask,
+                                            Threshold_type = Threshold_type,
+                                            Threshold_value = Threshold_value,
+                                            Blurr = Blurr_target,
+                                            Sigma = Sigma_target)
+          #save images and tissue masks if required by user
+          if(Save_processed_images){
+            #Mask
+            EBImage::writeImage(Tissue_mask, paste0(Output_Directory, "/", "Processed_", Image_names_short[Image_index], "_Tissue_mask", ".tiff"))
+            #Result
+            EBImage::writeImage(Target_Image$Image, paste0(Output_Directory, "/", "Processed_", 
+                                                           str_replace_all(Image_names_short[Result_Image_index], pattern = "_", replacement = "."),  
+                                                           "_", 
+                                                           str_replace_all(Target_channel, pattern = "_", replacement = "."),  "_BinaryThresholded", ".tiff"))
+          }
+          #Return the actual image
+          return(Target_Image)
+        }
+        
+        #Multilevel
+        if(Threshold_type == "Multilevel"){
+          #If threshold values have been supplied use them
+          if(!is.null(Threshold_value)){
+            Threshold_levels <- base::sort(Threshold_value)
+          }
+          #Else compute thresholds with imagerExtra
+          else{
+            Target_Image[!Tissue_mask] <- 0
+            Threshold_levels <- imagerExtra::ThresholdML(imager::cimg(array(as.vector(Target_Image), dim = c(1, length(as.vector(Target_Image)), 1, 1))), 
+                                                         k = (Levels-1),
+                                                         returnvalue = TRUE)
+          }
+          Target_Image <- Pixel_Multilevel_thresholder(Target = Target_Image,
+                                                       Tissue_mask = Tissue_mask,
+                                                       Threshold_values = Threshold_levels,
+                                                       Blurr = Blurr_target,
+                                                       Sigma = Sigma_target)
+          #save images and tissue masks if required by user
+          if(Save_processed_images){
+            #Mask
+            EBImage::writeImage(Tissue_mask, paste0(Output_Directory, "/","Processed_", Image_names_short[Image_index], "_Tissue_mask", ".tiff"))
+            #Result (divided by the number of breaks to get a graylevel image)
+            EBImage::writeImage(Target_Image$Image/length(Threshold_levels), paste0(Output_Directory, "/", "Processed_", 
+                                                                                    str_replace_all(Image_names_short[Result_Image_index], pattern = "_", replacement = "."),  
+                                                                                    "_", 
+                                                                                    str_replace_all(Target_channel, pattern = "_", replacement = "."), 
+                                                                                    "_MultiThresholded", ".tiff"))
+          }
+          
+          return(Target_Image)
+        }
+      }, .progress = TRUE)
+    )
+    
+    #Return to single core
+    future::plan("future::sequential")
+    gc()
+  }
+  
+  if(!Local_thresholding){
+    print("Performing Global thresholding")
+    
+    #We will need to calculate and store temporarily the tissue masks, these will be used to calculate thresholds
+    future::plan("future::multisession", workers = N_cores) 
+    options(future.globals.maxSize = Inf, future.rng.onMisuse = "ignore")
+    furrr::furrr_options(scheduling = Inf)
+    print("Generating tissue masks")
+    
+    Tissue_mask_list <- suppressMessages(
+      furrr::future_map(seq_along(1:length(Image_names)), function(Image_index){
+        Image <- magick::image_read(Image_names[Image_index])[Channels_to_keep_index]
+        Image <- magick::as_EBImage(Image)
+        
+        #First generate the tissue mask and then remove the original image (no longer required)
+        Tissue_mask <- Tissue_mask_generator(Image = Image,
+                                             Threshold_type = Threshold_type_tissueMask,
+                                             Threshold_value = Threshold_value_tissueMask,
+                                             Blurr = Blurr_tissueMask,
+                                             Sigma = Sigma_tissueMask)
+        rm(Image)
+        gc()
+        return(Tissue_mask)
+      }, .progress = TRUE)
+    )
+    gc()
+    
+    
+    #If threshold type is otsu or arbitrary, then proceed accordingly
+    if(Threshold_type != "Multilevel"){
+      
+      #Proceed with otsu
+      if(Threshold_type == "Otsu"){
+        print("Calculating global Otsu threshold")
+        #Generate a list that contains the image and the vectorized version of the image where tissue masks have been applied
+        Composite_Image_list <- suppressMessages(
+          furrr::future_map2(.x = 1:length(Image_names), .y = Tissue_mask_list, function(.x, .y){
+            #Import target image
+            Image <- magick::image_read(Image_names[.x])[Channels_to_keep_index]
+            Target_Image <- Image[which(Target_channel == Channels_to_keep)]
+            Target_Image <- magick::as_EBImage(Target_Image)
+            
+            
+            #Turn target image values outside tissue mask to 0
+            Target_Image[!.y] <- 0
+            
+            #return as vector
+            return(list(Image = Target_Image,
+                        Vector = as.vector(Target_Image)))
+          }, .progress = TRUE)
+        )
+        gc()
+        
+        #Generare a unified vector using all images
+        Common_vector <- unlist(map(Composite_Image_list, function(Image) Image[["Vector"]]))
+        #Apply otsu algorithm
+        Threshold_global_otsu <- EBImage::otsu(array(Common_vector, dim = c(1, length(Common_vector))), range = c(min(Common_vector), max(Common_vector)), levels = length(unique(Common_vector)))
+        
+        #Obtain results (arbitrary with global Otsu threshold)
+        print("Thresholding images")
+        RESULTS <- suppressMessages(
+          furrr::future_map2(.x = Composite_Image_list, .y = Tissue_mask_list, function(.x, .y){
+            Pixel_thresholder(Target = .x[["Image"]],
+                              Tissue_mask = .y,
+                              Threshold_type = "Arbitrary",
+                              Threshold_value = Threshold_global_otsu,
+                              Blurr = Blurr_target,
+                              Sigma = Sigma_target)
+          }, .progress = TRUE)
+        )
+        gc()
+        #If images need to be stored
+        if(Save_processed_images){
+          print("Writing tissue mask images")
+          #Tissue mask
+          suppressMessages(
+            furrr::future_map(seq_along(1:length(Tissue_mask_list)), function(Tissue_mask_index){
+              EBImage::writeImage(Tissue_mask_list[[Tissue_mask_index]],
+                                  paste0(Output_Directory, "/", "Processed_", Image_names_short[Tissue_mask_index], "_Tissue_mask", ".tiff"))
+            }, .progress = TRUE)
+          )
+          gc()
+          #Target image
+          print("Writing target images")
+          suppressMessages(
+            furrr::future_map(seq_along(1:length(RESULTS)), function(Result_Image_index){
+              EBImage::writeImage(RESULTS[[Result_Image_index]][["Image"]], 
+                                  paste0(Output_Directory, "/", "Processed_", 
+                                         str_replace_all(Image_names_short[Result_Image_index], pattern = "_", replacement = "."),  
+                                         "_", 
+                                         str_replace_all(Target_channel, pattern = "_", replacement = "."), "_BinaryThresholded", ".tiff"))
+            }, .progress = TRUE)
+          )
+          gc()
+        }
+      }
+      
+      #Proceed with user defined threshold
+      if(Threshold_type == "Arbitrary"){
+        #Get user defined threshold
+        Threshold_arbitrary <- Threshold_value
+        #Calculate the results by iterating along every image
+        print("Thresholding images")
+        RESULTS <- suppressMessages(
+          furrr::future_map2(.x = seq_along(1:length(Image_names)), .y = Tissue_mask_list, function(.x, .y){
+            Target_Image <- magick::image_read(Image_names[.x])[Channels_to_keep_index]
+            Target_Image <- Target_Image[which(Target_channel == Channels_to_keep)]
+            Target_Image <- magick::as_EBImage(Target_Image)
+            Pixel_thresholder(Target = Target_Image,
+                              Tissue_mask = .y,
+                              Threshold_type = "Arbitrary",
+                              Threshold_value = Threshold_arbitrary,
+                              Blurr = Blurr_target,
+                              Sigma = Sigma_target)
+          }, .progress = TRUE)
+        )
+        gc()
+        #If save images is required then write them in the output directory
+        if(Save_processed_images){
+          print("Writing tissue mask images")
+          #Tissue mask
+          suppressMessages(
+            furrr::future_map(seq_along(1:length(Tissue_mask_list)), function(Tissue_mask_index){
+              EBImage::writeImage(Tissue_mask_list[[Tissue_mask_index]],
+                                  paste0(Output_Directory, "/", "Processed_", Image_names_short[Tissue_mask_index], "_Tissue_mask", ".tiff"))
+            }, .progress = TRUE)
+          )
+          gc()
+          print("Writing target images")
+          #Target image
+          suppressMessages(
+            furrr::future_map(seq_along(1:length(RESULTS)), function(Result_Image_index){
+              EBImage::writeImage(RESULTS[[Result_Image_index]][["Image"]], 
+                                  paste0(Output_Directory, "/", "Processed_", 
+                                         str_replace_all(Image_names_short[Result_Image_index], pattern = "_", replacement = "."), 
+                                         "_", 
+                                         str_replace_all(Target_channel, pattern = "_", replacement = "."), "_BinaryThresholded", ".tiff"))
+            }, .progress = TRUE)
+          )
+          gc()
+        }
+      } 
+    }
+    #If multilevel is required
+    if(Threshold_type == "Multilevel"){
+      #Generate a list that contains the image and the vectorized version of the image where tissue masks have been applied
+      Composite_Image_list <- suppressMessages(
+        furrr::future_map2(.x = 1:length(Image_names), .y = Tissue_mask_list, function(.x, .y){
+          #Import target image
+          Image <- magick::image_read(Image_names[.x])[Channels_to_keep_index]
+          Target_Image <- Image[which(Target_channel == Channels_to_keep)]
+          Target_Image <- magick::as_EBImage(Target_Image)
+          
+          #Turn target image values outside tissue mask to 0
+          Target_Image[!.y] <- 0
+          
+          #return as vector
+          return(list(Image = Target_Image,
+                      Vector = as.vector(Target_Image)))
+        }, .progress = TRUE)
+      )
+      gc()
+      #Generare a unified vector using all images
+      Common_vector <- unlist(map(Composite_Image_list, function(Image) Image[["Vector"]]))
+      #If user has provided thresholds use them, if not compute using Imagerextra
+      if(!is.null(Threshold_value)){
+        Threshold_global_multilevel <- Threshold_value
+      } else{
+        print("Calculating Multi level thresholds")
+        Threshold_global_multilevel <- imagerExtra::ThresholdML(imager::cimg(array(Common_vector, dim = c(1, length(Common_vector), 1, 1))), 
+                                                                k = (Levels-1),
+                                                                returnvalue = TRUE)
+      }
+      #Obtain results (arbitrary with global Otsu threshold)
+      print("Thresholding images")
+      RESULTS <- suppressMessages(
+        furrr::future_map2(.x = Composite_Image_list, .y = Tissue_mask_list, function(.x, .y){
+          Pixel_Multilevel_thresholder(Target = .x[["Image"]],
+                                       Tissue_mask = .y,
+                                       Threshold_values = Threshold_global_multilevel,
+                                       Blurr = Blurr_target,
+                                       Sigma = Sigma_target)
+        }, .progress = TRUE)
+      )
+      gc()
+      #If images need to be stored
+      if(Save_processed_images){
+        print("Writing tissue mask images")
+        #Tissue mask
+        suppressMessages(
+          furrr::future_map(seq_along(1:length(Tissue_mask_list)), function(Tissue_mask_index){
+            EBImage::writeImage(Tissue_mask_list[[Tissue_mask_index]],
+                                paste0(Output_Directory, "/", "Processed_", Image_names_short[Tissue_mask_index], "_Tissue_mask", ".tiff"))
+          }, .progress = TRUE)
+        )
+        gc()
+        print("Writing target images")
+        #Target image divided by the number of breaks to get a graylevel image
+        suppressMessages(
+          furrr::future_map(seq_along(1:length(RESULTS)), function(Result_Image_index){
+            EBImage::writeImage(RESULTS[[Result_Image_index]][["Image"]]/length(Threshold_global_multilevel), 
+                                paste0(Output_Directory, "/", "Processed_", 
+                                       str_replace_all(Image_names_short[Result_Image_index], pattern = "_", replacement = "."), 
+                                       "_", 
+                                       str_replace_all(Target_channel, pattern = "_", replacement = "."), 
+                                       "_MultiThresholded", ".tiff"))
+          }, .progress = TRUE)
+        )
+        gc()
+      }
+    }
+    
+    #Return to single core
+    future::plan("future::sequential")
+    gc()
+  }
+  
+  print("Generating results summary")
+  #Generate the final tibble
+  Final_tibble <- tibble(Subject_Names = Image_names_short,
+                         Total_foreground_pixels = map_dbl(RESULTS, ~.[["Total_foreground_pixels"]]))
+  
+  #Generate the the result thresholds
+  if(Threshold_type == "Multilevel") Target_threshold_vector <- map_chr(RESULTS, ~.[["Threshold_value"]])
+  if(Threshold_type != "Multilevel") Target_threshold_vector <- map_dbl(RESULTS, ~.[["Threshold_value"]])
+  
+  #Generate summary
+  if(Threshold_type == "Multilevel"){
+    #Get the results
+    RESULTS <- map_dfr(RESULTS, function(Image) Image$Pixel_count)
+    names(RESULTS) <- str_c("Value_", names(RESULTS), sep = "")
+    #If na turn to 0
+    RESULTS[is.na(RESULTS)] <- 0
+    
+    #Calculate the multiScore n_pixels*value / total foreground pixels
+    Multi_score <- map2_dfc(.x = RESULTS[-1], .y = 1:ncol(RESULTS[-1]), function(.x, .y) .x*.y)
+    Multi_score <- apply(Multi_score, MARGIN = 1, function(Row) sum(Row))/Final_tibble$Total_foreground_pixels
+    
+    #Generate the proportion
+    RESULTS_PROP <- map_dfc(RESULTS, function(column) column/Final_tibble$Total_foreground_pixels)
+    names(RESULTS_PROP) <- str_c("PER_", names(RESULTS_PROP), sep = "")
+    RESULTS <- bind_cols(RESULTS, RESULTS_PROP)
+    
+    #Add the multiScore
+    RESULTS$Multi_score <- Multi_score
+  }
+  if(Threshold_type != "Multilevel"){
+    RESULTS <- tibble(Positive_pixels = map_dbl(RESULTS, ~.[["Pixel_count"]]))
+    RESULTS$Prop_positive <- RESULTS$Positive_pixels/Final_tibble$Total_foreground_pixels
+  }
+  
+  #Add the thresholds
+  RESULTS$Target_threshold_value <- Target_threshold_vector
+  
+  #Return the final value
+  return(dplyr::bind_cols(Final_tibble, RESULTS))
+}, options = list(optimize = 3))
+
+MFI_Experimet_Calculator <- cmpfun(
+  function(N_cores = NULL,
+           Directory = NULL,
+           Ordered_Channels = NULL,
+           Channels_to_keep =NULL,
+           Target_channel = NULL,
+           
+           Target_masks = NULL, #This will be a list of lists features where each item will be a target mask 
+           
+           Threshold_type_tissueMask = NULL,
+           Threshold_value_tissueMask = NULL,
+           Blurr_tissueMask = NULL,
+           Sigma_tissueMask = NULL
+  ){
+    on.exit({
+      future::plan("future::sequential")
+      gc()
+    })
+    
+    #Argument check general arguments
+    Argument_checker <- c(N_cores_OK = (N_cores >= 1 & N_cores%%1 == 0),
+                          Empty_directory = length(dir(Directory)) >= 1,
+                          Channels_OK = all(Channels_to_keep %in% Ordered_Channels),
+                          Target_channel_OK = Target_channel %in% Channels_to_keep,
+                          
+                          Threshold_type_tissueMask_OK = Threshold_type_tissueMask %in% c("Otsu", "Arbitrary", "Absolute"),
+                          Threshold_value_tissueMask_OK = if(Threshold_type_tissueMask == "Arbitrary"){
+                            all(is.numeric(Threshold_value_tissueMask), Threshold_value_tissueMask >=0, Threshold_value_tissueMask <= 1)
+                          } else(TRUE),
+                          Blurr_tissueMask_OK = is.logical(Blurr_tissueMask),
+                          Sigma_tissueMask_OK = if(Blurr_tissueMask){
+                            all(is.numeric(Sigma_tissueMask), Sigma_tissueMask > 0)
+                          } else(TRUE)
+    )
+    
+    Stop_messages <- c(N_cores_OK = "N_cores must be an integer value > 0",
+                       Empty_directory = "No files found at the directory provided. Please check out the path.",
+                       Channels_OK = str_c(
+                         "The following channels are not present the channel names provided: ",
+                         str_c(Channels_to_keep[!(Channels_to_keep %in% Ordered_Channels)], collapse = ", "),
+                         sep = ""),
+                       Target_channel_OK = str_c(Target_channel, " not present in ", str_c(Channels_to_keep, collapse = ", "), collapse = ""),
+                       
+                       
+                       Threshold_type_tissueMask_OK = "Threshold_type_TissueMask must be one of the following: Otsu, Arbitrary, Absolute",
+                       Threshold_value_tissueMask_OK = "Threshold_value_tissueMask must be a single numeric value between 0 and 1",
+                       Blurr_tissueMask_OK = "Blurr_tissueMask must be a logical value",
+                       Sigma_tissueMask_OK = "Sigma_tissueMask must be a positive numeric value > 0"
+    )
+    #Check arguments and stop if necessary
+    if(!all(Argument_checker)){
+      stop(cat(Stop_messages[!Argument_checker],
+               fill = sum(!Argument_checker)))
+    }
+    
+    #Check specifically the Target masks
+    #If no target mask required proceed appropriately
+    if(is.null(Target_masks)) print("Calculating MFI using the tissue mask alone")
+    #If complex target masks then check arguments
+    else{
+      #Check that target masks are a list
+      if(!is.list(Target_masks)) stop("Target_masks must be a list containing mask parameters")
+      
+      #Check that target masks items are a list
+      if(!all(
+        map_lgl(Target_masks, function(Individual_mask){
+          is.list(Individual_mask)
+        }))) stop("Individual Items in the Target_mask must be a list")
+      
+      #Check names of masks (Mask_name, Threshold_type, Threshold_value, Blurr, Sigma)
+      Adequate_names <- 
+        map_lgl(Target_masks, function(Individual_mask){
+          identical(names(Individual_mask), c("Mask_name", "Threshold_type", "Threshold_value", "Blurr", "Sigma"))
+        })
+      if(!all(Adequate_names)){
+        stop(paste0("Names of Target_masks must be the folloing: Mask_name, Threshold_type, Threshold_value, Blurr, Sigma",
+                    "The following masks have inadequate names: ",
+                    str_c(which(!Adequate_names), collapse = ", ")))
+      }
+      #Check the actual arguments within the list of lists
+      walk(Target_masks, function(Individual_mask){
+        #Check mask name present in channels to keep
+        if(!Individual_mask[["Mask_name"]] %in% Channels_to_keep) stop(paste0(Individual_mask[["Mask_name"]], ": Invalid mask name.",
+                                                                              "It must be present in channels_to_keep: ",
+                                                                              str_c(Channels_to_keep, collapse = ", ")))
+        
+        #Check Threshold type
+        if(!Individual_mask[["Threshold_type"]] %in% c("Arbitrary", "Otsu")) stop(paste0(Individual_mask[["Mask_name"]], ": Invalid Threshold type.",
+                                                                                         "It must be one of the following: Arbitrary, Otsu"))
+        
+        #Check Threshold value if Arbitrary
+        if(Individual_mask[["Threshold_type"]] == "Arbitrary"){
+          if(!all(is.numeric(Individual_mask[["Threshold_value"]]), Individual_mask[["Threshold_value"]] >=0, Individual_mask[["Threshold_value"]] <= 1)){
+            stop(paste0(Individual_mask[["Mask_name"]], ": Invalid Threshold_value.",
+                        "It must be a numeric value between 0 and 1"))
+          }
+        }
+        
+        #Check blur
+        if(!is.logical(Individual_mask[["Blurr"]])) stop(paste0(Individual_mask[["Mask_name"]], ": Invalid Blurr argument.",
+                                                                "It must be a logical value"))
+        #Check Sigma value
+        if(Individual_mask[["Blurr"]]){
+          if(!all(is.numeric(Individual_mask[["Sigma"]]), Individual_mask[["Sigma"]] > 0)) stop(paste0(Individual_mask[["Mask_name"]], ": Invalid Sigma argument.",
+                                                                                                       "Sigma must be a numeric value > 0"))
+        }
+      })
+    }
+    
+    #Get the full image directory and the short image names
+    Full_directory <- dir(Directory, full.names = TRUE)
+    Image_names <- dir(Directory, full.names = FALSE)
+    
+    #Will iterate for every image to obtain tissue mask and MFI
+    future::plan("future::multisession", workers = N_cores) 
+    options(future.globals.maxSize = Inf, future.rng.onMisuse = "ignore")
+    furrr::furrr_options(scheduling = Inf)
+    RESULTS <- 
+      suppressMessages(
+        furrr::future_map(seq_along(1:length(dir(Directory))), function(Image){
+          #Import the image and turn it into EBI image format
+          Image <- magick::image_read(Full_directory[Image])
+          Image <- Image[which(Channels_to_keep %in% Ordered_Channels)]
+          Image <- Image %>% magick::as_EBImage()
+          
+          
+          #First generate a tissue mask
+          Tissue_mask <- Tissue_mask_generator(Image = Image,
+                                               Threshold_type = Threshold_type_tissueMask,
+                                               Threshold_value = Threshold_value_tissueMask,
+                                               Blurr = Blurr_tissueMask,
+                                               Sigma = Sigma_tissueMask)
+          
+          #Second generate potential target tissue masks and generate the final combined mask (Tissue + target)
+          if(!is.null(Target_masks)){
+            #Generate a list containing all the masks images
+            Target_mask_list <- 
+              map(Target_masks, function(Mask_parameters){
+                return(
+                  Pixel_thresholder(Target = EBImage::getFrame(Image, which(Channels_to_keep == Mask_parameters[["Mask_name"]])),
+                                    Tissue_mask = Tissue_mask,
+                                    Threshold_type = Mask_parameters[["Threshold_type"]],
+                                    Threshold_value = Mask_parameters[["Threshold_value"]],
+                                    Blurr = Mask_parameters[["Blurr"]],
+                                    Sigma = Mask_parameters[["Sigma"]])[["Image"]]
+                )
+              })
+            #Add tissue mask
+            Target_mask_list$Tissue_mask <- Tissue_mask
+            
+            #Generate the final Tissue_mask including all masks generated
+            Tissue_mask <- Multi_mask_generator(Target_mask_list)
+            
+            #Remove target mask list (large object) and run gc()
+            rm(Target_mask_list)
+            gc()
+          }
+          
+          #Get the target channel and remove Image (large object) and run gc()
+          Target_Image <- EBImage::getFrame(Image, which(Channels_to_keep == Target_channel))
+          rm(Image)
+          gc()
+          
+          #Finally calculate MFI in mask
+          Result <- MFI_calculator(Target = Target_Image,
+                                   Tissue_mask = Tissue_mask)
+          return(Result)
+        }, .progress = TRUE)
+      )
+    #Return to single core
+    future::plan("future::sequential")
+    gc()
+    
+    #Generate the name of the mask
+    if(is.null(Target_masks)) Mask_name <- "Tissue"
+    if(!is.null(Target_masks)){
+      Mask_name <- c(map_chr(Target_masks, ~.[["Mask_name"]]), "Tissue")
+      Mask_name <- str_c(Mask_name, collapse = "_")
+    }
+    
+    #Generate the names of the MFI_score and mask name variables
+    MFI_name <- str_c(c(Target_channel, "_MFI_in_", Mask_name), collapse = "")
+    Mask_name <- str_c(Mask_name, "_Pixels", collapse = "")
+    
+    #Generate the final tibble
+    RESULTS_tibble <- tibble(Subject_Names = Image_names)
+    RESULTS_tibble$Value <- map_dbl(RESULTS, ~.[["MFI"]])
+    RESULTS_tibble$Area <- map_dbl(RESULTS, ~.[["Total_foreground_pixels"]])
+    #Change the names
+    names(RESULTS_tibble)[c(2,3)] <- c(MFI_name, Mask_name)
+    
+    return(RESULTS_tibble)
+    
+  }, 
+  options = list(optimize = 3))
+
+Marker_segmentator <-
+  cmpfun(
+    function(DATA = NULL,
+             DATA_variable = NULL,
+             DATA_cutoff = NULL,
+             New_labels = NULL,
+             Merge = NULL,
+             Var_to_Merge = NULL){
+      
+      #Check arguments
+      if(!DATA_variable %in% names(DATA)) {
+        stop(paste0(DATA_variable, " not present in the DATA provided."))
+      }
+      
+      if(!is.numeric(DATA_cutoff)) stop("DATA_cutoff must be a numeric vector")
+      if(!length(New_labels) == length(DATA_cutoff)-1) stop(paste0(length(DATA_cutoff)-1, " New_labels must be provided"))
+      if(!is.logical(Merge)) stop("Merge must be a logical value")
+      if(Merge){
+        if(!Var_to_Merge %in% names(DATA)) stop(paste0(Var_to_Merge, " not present in DATA provided"))
+      }
+      
+      #Generate the segmented version of distance variable
+      Segmented_distance <- as.character(cut(DATA[[DATA_variable]], breaks = DATA_cutoff, labels = New_labels))
+      
+      #Add it to data or to the desired cell column
+      if(!Merge) DATA[[DATA_variable]] <- Segmented_distance
+      if(Merge) DATA[[Var_to_Merge]] <- str_c(DATA[[Var_to_Merge]], Segmented_distance, sep = "_")
+      
+      return(DATA)
+    },
+    options = list(optimize = 3)
+  )
+
 
 Data_arrange_function <- cmpfun(function(DATA, X, Y, Subject_Names, Markers_to_keep) { 
   
@@ -3256,111 +4571,112 @@ Thresholding_tester_app <- cmpfun(
                                "MinErrorI", "Minimum", "Moments", "Otsu", "RenyiEntropy", "Shanbhag", "Triangle", "Yen")
     
     #BUILD THE USER INTERFACE
-    user_interface <- shiny::fluidPage(
-      
-      #Set the title
-      shiny::titlePanel("Thresholding exploration APP"),
-      
-      #We want a two panel layout, one in the left containing the input parameters and the output in the right
-      shiny::sidebarLayout(
-        #Set the first column (which contains the user defined parameters)
-        shiny::sidebarPanel(
-          #ID and width
-          id="sidebar",
+    {
+      user_interface <- shiny::fluidPage(
+        
+        #Set the title
+        shiny::titlePanel("Thresholding exploration APP"),
+        
+        #We want a two panel layout, one in the left containing the input parameters and the output in the right
+        shiny::sidebarLayout(
+          #Set the first column (which contains the user defined parameters)
+          shiny::sidebarPanel(
+            #ID and width
+            id="sidebar",
+            
+            shiny::fluidRow(
+              #Select Image to be analyzed
+              shiny::column(7, shiny::selectInput("Data_Image_name", "Image from data", sort(Images_in_Data), multiple = FALSE)),
+              #Select the marker to be analyzed
+              shiny::column(5, shiny::selectInput("Data_Marker_name", "Marker from data", sort(Channels_in_Data), multiple = FALSE))
+            ),
+            shiny::fluidRow(
+              #Select the real image to be displayed
+              shiny::column(7, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
+              #Select the channel to be displayed
+              shiny::column(5, shiny::selectInput("Channel", "Channel to display", Channels_in_images, multiple = FALSE))
+            ),
+            shiny::fluidRow(
+              #Select the min point of the image
+              shiny::column(4, shiny::sliderInput("Min_Image", "Absolute Black", value = 0, min = 0, max = 100, step = 1)),
+              #Select the max point of the image
+              shiny::column(4, shiny::sliderInput("Max_Image", "Absolute White", value = 100, min = 0, max = 100, step = 1)),
+              shiny::column(2, shinyWidgets::materialSwitch("Change_coords", "Pixel/dist", value = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Change_coords == '1'",
+                                                       shiny::textInput("Ratio", "pixel size", value = "1")
+              ))
+            ),
+            
+            shiny::fluidRow(
+              #Select the Gamma
+              shiny::column(6, shiny::sliderInput("Gamma", "Gamma", value = 0, min = -3, max = +3, step = 0.01)),
+              #Select the image resolution
+              shiny::column(3, shiny::selectInput("Res", "Image Res", c('Very Low' = 300, Low = 500, Mid = 750, High = 1000, Original = 1400), selected = 500, multiple = FALSE)),
+              #Select the equalization
+              shiny::column(3, shiny::selectInput("Equalize", "Equalize", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE))
+            ),
+            
+            shiny::fluidRow(
+              #Select the thresholding method
+              shiny::column(8, shiny::selectInput("Threshold_method", "Thresholding method", Thresholding_methods, multiple = FALSE)),
+              #Select the thresholding method
+              shiny::column(4, shiny::selectInput("Local", "Type of threshold", c(LOCAL = TRUE, GLOBAL = FALSE), selected = FALSE, multiple = FALSE))
+            ),
+            #Add thresholding parameters according to the selected threshold method 
+            shiny::conditionalPanel(condition = "input.Threshold_method == 'Autothreshold'",
+                                    shiny::selectInput("Autothreshold_method", "Autothreshold method", Autothreshold_methods, selected = "Otsu", multiple = FALSE)
+            ),
+            shiny::conditionalPanel(condition = "input.Threshold_method == 'TriClass_Otsu'",
+                                    shiny::numericInput("TriClass_Iters", "TriClass iterations", value = 10, min = 2, max = 30)
+            ),
+            shiny::conditionalPanel(condition = "input.Threshold_method == 'Quantile'",
+                                    shiny::sliderInput("Percentile", "Quantile selected", value = 0.5, min = 0.01, max = 0.99, step = 0.01)
+            ),
+            shiny::conditionalPanel(condition = "input.Threshold_method == 'Arbitrary'",
+                                    shiny::textInput("Arbitrary", "User selected threshold", placeholder = "0.9")
+            ),
+            shiny::conditionalPanel(condition = "input.Threshold_method == 'Multi_level'",
+                                    shiny::numericInput("Levels", "Number of Levels", value = 3, min = 2, max = 10)
+            ),
+            #Finally add a couple of rows more with extra options and the final result
+            shiny::fluidRow(
+              shiny::column(4, shiny::selectInput("X_flip", "Flip X image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
+              shiny::column(4, shiny::selectInput("Y_flip", "Flip Y image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
+              shiny::column(4, shiny::actionButton("reset", shiny::icon("redo"), label = "Reset selection"))
+            ),
+            #The UI will be completed with summary tables of the sample
+            shiny::fluidRow(
+              shiny::column(6, htmltools::p("Final threshold/s is: ", shiny::tableOutput("Final_threshold"))),
+              shiny::column(6, htmltools::p("Sample Summary: ", shiny::tableOutput("Summary")))
+            ),
+            #Also it will include a summary of selected cells
+            shiny::fluidRow(
+              shiny::column(12, htmltools::p("Selected cells: ", shiny::tableOutput("Cell_selection")))
+            )
+          ),
           
-          shiny::fluidRow(
-            #Select Image to be analyzed
-            shiny::column(7, shiny::selectInput("Data_Image_name", "Image from data", sort(Images_in_Data), multiple = FALSE)),
-            #Select the marker to be analyzed
-            shiny::column(5, shiny::selectInput("Data_Marker_name", "Marker from data", sort(Channels_in_Data), multiple = FALSE))
-          ),
-          shiny::fluidRow(
-            #Select the real image to be displayed
-            shiny::column(7, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
-            #Select the channel to be displayed
-            shiny::column(5, shiny::selectInput("Channel", "Channel to display", Channels_in_images, multiple = FALSE))
-          ),
-          shiny::fluidRow(
-            #Select the min point of the image
-            shiny::column(4, shiny::sliderInput("Min_Image", "Absolute Black", value = 0, min = 0, max = 100, step = 1)),
-            #Select the max point of the image
-            shiny::column(4, shiny::sliderInput("Max_Image", "Absolute White", value = 100, min = 0, max = 100, step = 1)),
-            shiny::column(2, shinyWidgets::materialSwitch("Change_coords", "Pixel/dist", value = FALSE)),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Change_coords == '1'",
-                                                     shiny::textInput("Ratio", "pixel size", value = "1")
-            ))
-          ),
-          
-          shiny::fluidRow(
-            #Select the Gamma
-            shiny::column(6, shiny::sliderInput("Gamma", "Gamma", value = 0, min = -3, max = +3, step = 0.01)),
-            #Select the image resolution
-            shiny::column(3, shiny::selectInput("Res", "Image Res", c('Very Low' = 300, Low = 500, Mid = 750, High = 1000, HD = 1400), selected = 500, multiple = FALSE)),
-            #Select the equalization
-            shiny::column(3, shiny::selectInput("Equalize", "Equalize", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE))
-          ),
-          
-          shiny::fluidRow(
-            #Select the thresholding method
-            shiny::column(8, shiny::selectInput("Threshold_method", "Thresholding method", Thresholding_methods, multiple = FALSE)),
-            #Select the thresholding method
-            shiny::column(4, shiny::selectInput("Local", "Type of threshold", c(LOCAL = TRUE, GLOBAL = FALSE), selected = FALSE, multiple = FALSE))
-          ),
-          #Add thresholding parameters according to the selected threshold method 
-          shiny::conditionalPanel(condition = "input.Threshold_method == 'Autothreshold'",
-                                  shiny::selectInput("Autothreshold_method", "Autothreshold method", Autothreshold_methods, selected = "Otsu", multiple = FALSE)
-          ),
-          shiny::conditionalPanel(condition = "input.Threshold_method == 'TriClass_Otsu'",
-                                  shiny::numericInput("TriClass_Iters", "TriClass iterations", value = 10, min = 2, max = 30)
-          ),
-          shiny::conditionalPanel(condition = "input.Threshold_method == 'Quantile'",
-                                  shiny::sliderInput("Percentile", "Quantile selected", value = 0.5, min = 0.01, max = 0.99, step = 0.01)
-          ),
-          shiny::conditionalPanel(condition = "input.Threshold_method == 'Arbitrary'",
-                                  shiny::textInput("Arbitrary", "User selected threshold", placeholder = "0.9")
-          ),
-          shiny::conditionalPanel(condition = "input.Threshold_method == 'Multi_level'",
-                                  shiny::numericInput("Levels", "Number of Levels", value = 3, min = 2, max = 10)
-          ),
-          #Finally add a couple of rows more with extra options and the final result
-          shiny::fluidRow(
-            shiny::column(4, shiny::selectInput("X_flip", "Flip X image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
-            shiny::column(4, shiny::selectInput("Y_flip", "Flip Y image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
-            shiny::column(4, shiny::actionButton("reset", shiny::icon("redo"), label = "Reset selection"))
-          ),
-          #The UI will be completed with summary tables of the sample
-          shiny::fluidRow(
-            shiny::column(6, htmltools::p("Final threshold/s is: ", shiny::tableOutput("Final_threshold"))),
-            shiny::column(6, htmltools::p("Sample Summary: ", shiny::tableOutput("Summary")))
-          ),
-          #Also it will include a summary of selected cells
-          shiny::fluidRow(
-            shiny::column(12, htmltools::p("Selected cells: ", shiny::tableOutput("Cell_selection")))
+          #Set the outcome columns
+          shiny::mainPanel(
+            #First row will have the Photo and the overview of marker intensity by cell
+            shiny::fluidRow(
+              shiny::column(5, shiny::plotOutput("Photo",
+                                                 #Controls for zoom in
+                                                 dblclick = "Photo_dblclick",
+                                                 brush = shiny::brushOpts(id = "Photo_brush",
+                                                                          resetOnNew = TRUE)
+              )
+              ),
+              shiny::column(5, ggiraph::girafeOutput("Cell_by_intensity"))
+            ),
+            #Second row will contain the positive cells and the histogram
+            shiny::fluidRow(
+              shiny::column(5, ggiraph::girafeOutput("Positive_cells")),
+              shiny::column(5, shiny::plotOutput("Histogram"))
+            )
           )
         ),
-        
-        #Set the outcome columns
-        shiny::mainPanel(
-          #First row will have the Photo and the overview of marker intensity by cell
-          shiny::fluidRow(
-            shiny::column(5, shiny::plotOutput("Photo",
-                                               #Controls for zoom in
-                                               dblclick = "Photo_dblclick",
-                                               brush = shiny::brushOpts(id = "Photo_brush",
-                                                                        resetOnNew = TRUE)
-            )
-            ),
-            shiny::column(5, ggiraph::girafeOutput("Cell_by_intensity"))
-          ),
-          #Second row will contain the positive cells and the histogram
-          shiny::fluidRow(
-            shiny::column(5, ggiraph::girafeOutput("Positive_cells")),
-            shiny::column(5, shiny::plotOutput("Histogram"))
-          )
-        )
-      ),
-      shiny::tags$head(shiny::tags$style(
-        htmltools::HTML('
+        shiny::tags$head(shiny::tags$style(
+          htmltools::HTML('
          #sidebar {
             background-color: #d2dbfa;
         }
@@ -3368,8 +4684,8 @@ Thresholding_tester_app <- cmpfun(
         body, label, input, button, select { 
           font-family: "Arial";
         }')))
-    )
-    
+      )
+    }
     #BUILD THE SERVER
     server <- function(input, output, session){
       #All the reactives to be used
@@ -3400,16 +4716,15 @@ Thresholding_tester_app <- cmpfun(
       Source_DATA <- shiny::reactive({
         Final_DATA <- DATA %>% dplyr::select(1:4, all_of(Variable()))
         names(Final_DATA)[5] <- "Marker"
-        Final_DATA
+        #Modify pixel values if required
+        if(as.logical(Pixel_dist_conversion())){
+          Final_DATA$X <- Final_DATA$X * as.numeric(Pixel_dist_ratio())
+          Final_DATA$Y <- Final_DATA$Y * as.numeric(Pixel_dist_ratio())
+        }
+        #Return the final data
+        return(Final_DATA)
       })
-      #Control de X and Y axis for photo re-dimension
-      Dimensions <- shiny::reactive({
-        DATA <- Source_DATA() %>% dplyr::filter(Subject_Names == Case_id())
-        list(x_min = min(DATA$X),
-             x_max = max(DATA$X),
-             y_min = min(DATA$Y),
-             y_max = max(DATA$Y))
-      })
+      
       #Generate the thresholded DATA
       Thresholded_DATA <- shiny::reactive({
         DATA_thresholded <- Thresholding_function(
@@ -3431,41 +4746,15 @@ Thresholding_tester_app <- cmpfun(
                                                                         CASE = Case_id())
       )
       
-      #Reactive that imports the photograph
+      #Reactive that imports the photograph (will only be updated when data or photo parameters are updated) 
       Photo_reactive <- shiny::reactive({
         #Import the Photo
         Photo <- magick::image_read(Photo_name())[Channel_index()]
         #Perform flip and flop if required
         if(as.logical(X_flip())) Photo <- Photo %>% magick::image_flop()
         if(as.logical(Y_flip())) Photo <- Photo %>% magick::image_flip()
-        
-        #Crop it as necessary and redimension
-        x_min <- Dimensions()[["x_min"]]
-        x_max <- Dimensions()[["x_max"]]
-        x_dim <- ceiling(x_max - x_min)
-        y_min <- Dimensions()[["y_min"]]
-        y_max <- Dimensions()[["y_max"]]
-        y_dim <- ceiling(y_max - y_min)
-        
-        #If images are in pixels and cell coordinates in distance then convert distances to pixels
-        if(as.logical(Pixel_dist_conversion())){
-          geometry_dim <- str_c(x_dim/as.numeric(Pixel_dist_ratio()), "x", y_dim/as.numeric(Pixel_dist_ratio()), 
-                                "+", 
-                                x_min/as.numeric(Pixel_dist_ratio()), "+", y_min/as.numeric(Pixel_dist_ratio()))
-        }
-        #If no conversion required then proceed
-        else{
-          geometry_dim <- str_c(x_dim, "x", y_dim, "+", x_min, "+", y_min)
-        }
-        Photo <- Photo %>% magick::image_crop(geometry = geometry_dim)
-        
-        Image_Resolution <- str_c("X", Resolution())
-        
-        Photo <- magick::image_scale(Photo, Image_Resolution)
-        
         #Perform image equalization as requested by user
         if(as.logical(Equalize())) Photo <- Photo %>% magick::image_equalize()
-        
         #Perform image white adjustment
         Photo <- Photo %>% 
           magick::image_level(black_point = Photo_min(),
@@ -3473,41 +4762,57 @@ Thresholding_tester_app <- cmpfun(
                               mid_point = Photo_gamma())
         
         
-        #Transform to raster and generate plot
-        Photo <- Photo %>% magick::image_raster()
-        
-        #Change the axis to coordinate all three plots displayed
-        Photo$x <- Photo$x - min(Photo$x)
-        Photo$y <- Photo$y - min(Photo$y)
-        Photo$x <- (Photo$x / max(Photo$x)) * x_max
-        Photo$y <- (Photo$y / max(Photo$y)) * y_max
-        
-        #Return the result
-        Photo
+        #Obtain dimensions (these will set the axis limits) BEFORE the resolution is modified
+        Photo_Dim <- magick::image_info(Photo)
+        #Change resolution if appropiate
+        if(as.numeric(Resolution() != 1400)){
+          Image_Resolution <- str_c("X", Resolution())
+          Photo <- magick::image_scale(Photo, Image_Resolution)
+        }
+        return(list(Photo = Photo,
+                    Dims = Photo_Dim))
       })
+      
+      #Generate the photo plot reactive 
+      Photo_plot_reactive <- shiny::reactive({
+        Photo <- Photo_reactive()[["Photo"]]
+        Photo_Dim <- Photo_reactive()[["Dims"]]
+        #Return the result as a scaffold ggplot_object
+        Photo_plot <- ggplot() + 
+          annotation_raster(Photo, xmin = 0, xmax = Photo_Dim$width, ymin = 0, ymax = Photo_Dim$height, interpolate = TRUE)+
+          scale_x_continuous(limits = c(0, Photo_Dim$width)) +
+          scale_y_continuous(limits = c(0, Photo_Dim$height)) +
+          coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+          theme(axis.title = element_blank(),
+                axis.text = element_blank(),
+                axis.ticks = element_blank(),
+                axis.line = element_blank(),
+                panel.background = element_rect(fill = "black"),
+                panel.grid = element_blank())
+        return(Photo_plot)
+      }) 
       
       #Print the photo
       output$Photo <- shiny::renderPlot({
         #Try to Plot the result
-        try(Photo <- Photo_reactive())
+        try(Photo <- Photo_plot_reactive())
         
         #If the photo returns an error return the point image
         if(berryFunctions::is.error(Photo)){
           DATA_plot <- Source_DATA() %>% dplyr::filter(Subject_Names == Case_id())
-          x_max <- Dimensions()[["x_max"]]
-          y_max <- Dimensions()[["y_max"]]
-          DATA_plot$X <- DATA_plot$X - min(DATA_plot$X)
-          DATA_plot$Y <- DATA_plot$Y - min(DATA_plot$Y)
-          DATA_plot$X <- (DATA_plot$X / max(DATA_plot$X)) * x_max
-          DATA_plot$Y <- (DATA_plot$Y / max(DATA_plot$Y)) * y_max
+          #Modify pixel values if required
+          if(as.logical(Pixel_dist_conversion())){
+            DATA_plot$X <- DATA_plot$X * as.numeric(Pixel_dist_ratio())
+            DATA_plot$Y <- DATA_plot$Y * as.numeric(Pixel_dist_ratio())
+          }
           
           return(
             DATA_plot %>% ggplot() +
               geom_point(aes(x = X, y = Y),
                          color = "white",
                          size = 2.5) +
-              scale_x_continuous(limits = c(min(DATA_plot$X) - 50, max(DATA_plot$X) + 50)) +
-              scale_y_continuous(limits = c(min(DATA_plot$Y) - 50, max(DATA_plot$Y) + 50)) +
+              scale_x_continuous(limits = c(min(DATA_plot$X), max(DATA_plot$X))) +
+              scale_y_continuous(limits = c(min(DATA_plot$Y), max(DATA_plot$Y))) +
               coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
               theme(axis.title = element_blank(),
                     axis.text = element_blank(),
@@ -3523,21 +4828,8 @@ Thresholding_tester_app <- cmpfun(
         }
         #else Generate the plot with the photo
         else{
-          Photo_plot <- ggplot() + geom_raster(aes(x = x, y = y, fill = col), data = Photo) + 
-            scale_fill_identity() +
-            scale_x_continuous(limits = c(min(Photo$x) - 50, max(Photo$x) + 50)) +
-            scale_y_continuous(limits = c(min(Photo$y) - 50, max(Photo$y) + 50)) +
-            coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
-            theme(axis.title = element_blank(),
-                  axis.text = element_blank(),
-                  axis.ticks = element_blank(),
-                  axis.line = element_blank(),
-                  panel.background = element_rect(fill = "black"),
-                  panel.grid = element_blank())
-          return(Photo_plot)
+          return(Photo)
         }
-        
-        
       }, res = 300)
       
       #Control the zoom in of the Photo
@@ -3559,15 +4851,9 @@ Thresholding_tester_app <- cmpfun(
         shiny::reactive({
           #Get data and change the axis to coordinate all three plots displayed
           DATA_plot <- Source_DATA() %>% dplyr::filter(Subject_Names == Case_id())
-          x_max <- Dimensions()[["x_max"]]
-          y_max <- Dimensions()[["y_max"]]
-          DATA_plot$X <- DATA_plot$X - min(DATA_plot$X)
-          DATA_plot$Y <- DATA_plot$Y - min(DATA_plot$Y)
-          DATA_plot$X <- (DATA_plot$X / max(DATA_plot$X)) * x_max
-          DATA_plot$Y <- (DATA_plot$Y / max(DATA_plot$Y)) * y_max
           
-          #Try to import the photo
-          try(Photo <- Photo_reactive())
+          #Try to import the photo plot
+          try(Photo <- Photo_plot_reactive())
           
           #Generate the color
           color_fun <- 
@@ -3588,8 +4874,8 @@ Thresholding_tester_app <- cmpfun(
                                                 hover_nearest = FALSE,
                                                 size = 2.5) +
                 scale_color_identity() +
-                scale_x_continuous(limits = c(min(DATA_plot$X) - 1, max(DATA_plot$X) + 1)) +
-                scale_y_continuous(limits = c(min(DATA_plot$Y) - 1, max(DATA_plot$Y) + 1)) +
+                scale_x_continuous(limits = c(min(DATA_plot$X), max(DATA_plot$X))) +
+                scale_y_continuous(limits = c(min(DATA_plot$Y), max(DATA_plot$Y))) +
                 coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
                 cowplot::theme_cowplot()+
                 guides(colour = "none")+
@@ -3603,26 +4889,17 @@ Thresholding_tester_app <- cmpfun(
           }
           #Else plot as usual
           else{
-            DATA_plot %>% ggplot() +
-              geom_raster(aes(x = x, y = y, fill = col), data = Photo) +
-              scale_fill_identity() +
+            Final_plot <-
+              Photo +
               ggiraph::geom_point_interactive(aes(x = X, y = Y, color = Color,
                                                   data_id = Cell_no, 
                                                   tooltip = str_c(as.character(Cell_no), " ", "Value = ", as.character(round(Marker, 4)))),
                                               hover_nearest = FALSE,
-                                              size = 2.5) +
+                                              size = 2.5,
+                                              data = DATA_plot) +
               scale_color_identity() +
-              scale_x_continuous(limits = c(min(DATA_plot$X) - 1, max(DATA_plot$X) + 1)) +
-              scale_y_continuous(limits = c(min(DATA_plot$Y) - 1, max(DATA_plot$Y) + 1)) +
-              coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
-              cowplot::theme_cowplot()+
-              guides(colour = "none")+
-              theme(axis.line = element_blank(),
-                    axis.ticks = element_blank(),
-                    axis.text = element_blank(),
-                    axis.title = element_blank(),
-                    panel.background = element_rect(fill = "black"),
-                    legend.text = element_text(size = 10))
+              guides(colour = "none")
+            return(Final_plot)
           }
           
         })
@@ -3641,19 +4918,12 @@ Thresholding_tester_app <- cmpfun(
       #Create a reactive that will generate the very basic PLOT
       Positive_cells_plot <- shiny::reactive({
         DATA_threshold <- Thresholded_DATA() %>% dplyr::filter(Subject_Names == Case_id())
-        x_max <- Dimensions()[["x_max"]]
-        y_max <- Dimensions()[["y_max"]]
-        DATA_threshold$X <- DATA_threshold$X - min(DATA_threshold$X)
-        DATA_threshold$Y <- DATA_threshold$Y - min(DATA_threshold$Y)
-        DATA_threshold$X <- (DATA_threshold$X / max(DATA_threshold$X)) * x_max
-        DATA_threshold$Y <- (DATA_threshold$Y / max(DATA_threshold$Y)) * y_max
-        DATA_threshold 
-        
+        return(DATA_threshold)
       })
       #Send the plot to the UI according to the thresholding method
       output$Positive_cells <- ggiraph::renderGirafe({
         #Try to Import the photo
-        try(Photo <- Photo_reactive())
+        try(Photo <- Photo_plot_reactive())
         
         #If there is an error with the Photo still execute the graph
         if(berryFunctions::is.error(Photo)){
@@ -3671,8 +4941,8 @@ Thresholding_tester_app <- cmpfun(
                     legend.text = element_text(size = 10)) +
               scale_colour_manual("", values = c(alpha("black", 0), "red")) +
               guides(color = "none") +
-              scale_x_continuous(limits = c(min(Positive_cells_plot()$X) - 50, max(Positive_cells_plot()$X) + 50)) +
-              scale_y_continuous(limits = c(min(Positive_cells_plot()$Y) - 50, max(Positive_cells_plot()$Y) + 50)) +
+              scale_x_continuous(limits = c(min(Positive_cells_plot()$X), max(Positive_cells_plot()$X))) +
+              scale_y_continuous(limits = c(min(Positive_cells_plot()$Y), max(Positive_cells_plot()$Y))) +
               coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE) +
               scale_fill_identity() +
               ggiraph::geom_point_interactive(aes(x = X, y = Y, color = Marker,
@@ -3700,8 +4970,8 @@ Thresholding_tester_app <- cmpfun(
                     panel.background = element_rect(fill = "black"),
                     legend.text = element_text(size = 10)) + 
               scale_colour_manual("", values = c(alpha("black", 0), RColorBrewer::brewer.pal(n = Levels()-1, "Reds")))+
-              scale_x_continuous(limits = c(min(Positive_cells_plot()$X) - 50, max(Positive_cells_plot()$X) + 50)) +
-              scale_y_continuous(limits = c(min(Positive_cells_plot()$Y) - 50, max(Positive_cells_plot()$Y) + 50)) +
+              scale_x_continuous(limits = c(min(Positive_cells_plot()$X), max(Positive_cells_plot()$X))) +
+              scale_y_continuous(limits = c(min(Positive_cells_plot()$Y), max(Positive_cells_plot()$Y))) +
               coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE) +
               scale_fill_identity() +
               ggiraph::geom_point_interactive(aes(x = X, y = Y, color = as.factor(Marker),
@@ -3722,26 +4992,14 @@ Thresholding_tester_app <- cmpfun(
           #Define behavior for 2 levels
           if(Threshold_method() != "Multi_level"){
             #Add specific code for non Multi_level
-            Plot_code <- Positive_cells_plot() %>% 
-              ggplot() +
-              cowplot::theme_cowplot()+
-              theme(axis.line = element_blank(),
-                    axis.ticks = element_blank(),
-                    axis.text = element_blank(),
-                    axis.title = element_blank(),
-                    panel.background = element_rect(fill = "black"),
-                    legend.text = element_text(size = 10)) +
+            Plot_code <- Photo +
               scale_colour_manual("", values = c(alpha("black", 0), "red")) +
               guides(color = "none") +
-              scale_x_continuous(limits = c(min(Positive_cells_plot()$X) - 50, max(Positive_cells_plot()$X) + 50)) +
-              scale_y_continuous(limits = c(min(Positive_cells_plot()$Y) - 50, max(Positive_cells_plot()$Y) + 50)) +
-              coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE) +
-              geom_raster(aes(x = x, y = y, fill = col), data = Photo) +
-              scale_fill_identity() +
               ggiraph::geom_point_interactive(aes(x = X, y = Y, color = Marker,
                                                   data_id = Cell_no, 
                                                   tooltip = as.character(Cell_no)),
-                                              size = 2.5)
+                                              size = 2.5,
+                                              data = Positive_cells_plot())
             #Send it to plot
             plot <- ggiraph::girafe(code = print(Plot_code),
                                     options = list(
@@ -3753,25 +5011,14 @@ Thresholding_tester_app <- cmpfun(
           #Define behavior for Multi-level
           else{
             #Add specific code for multi_level
-            Plot_code <- Positive_cells_plot() %>%
-              ggplot() +
-              cowplot::theme_cowplot()+
-              theme(axis.line = element_blank(),
-                    axis.ticks = element_blank(),
-                    axis.text = element_blank(),
-                    axis.title = element_blank(),
-                    panel.background = element_rect(fill = "black"),
-                    legend.text = element_text(size = 10)) + 
+            Plot_code <- Photo +
+              theme(legend.text = element_text(size = 10)) + 
               scale_colour_manual("", values = c(alpha("black", 0), RColorBrewer::brewer.pal(n = Levels()-1, "Reds")))+
-              scale_x_continuous(limits = c(min(Positive_cells_plot()$X) - 50, max(Positive_cells_plot()$X) + 50)) +
-              scale_y_continuous(limits = c(min(Positive_cells_plot()$Y) - 50, max(Positive_cells_plot()$Y) + 50)) +
-              coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE) +
-              geom_raster(aes(x = x, y = y, fill = col), data = Photo) +
-              scale_fill_identity() +
               ggiraph::geom_point_interactive(aes(x = X, y = Y, color = as.factor(Marker),
                                                   data_id = Cell_no, 
                                                   tooltip = str_c("Value = ", as.character(round(Marker, 0)))),
-                                              size = 2.5)
+                                              size = 2.5,
+                                              data = Positive_cells_plot())
             #Send it to plot
             plot <- ggiraph::girafe(code = print(Plot_code),
                                     options = list(
@@ -4013,7 +5260,7 @@ Thresholding_function <-
                       map_df(Tibble[-c(1:4)],
                              function(z){
                                if(length(unique(z))>Levels){ #requires at least n levels levels
-                                 as.double(imagerExtra::ThresholdML(imager::cimg(array(z, dim = c(1, length(z), 1, 1))), k = 2)) #K to specify the amount of cut-off points
+                                 as.double(imagerExtra::ThresholdML(imager::cimg(array(z, dim = c(1, length(z), 1, 1))), k = (Levels-1))) #K to specify the amount of cut-off points
                                }else(NA)
                              })
                     }), bind_rows, .progress = list(clear = F,
@@ -5747,94 +6994,94 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
     Max_HEATMAP <- quantile(unlist(DATA[Variables]), 0.975)
     
     #BUILD THE USER INTERFACE
-    user_interface <- shiny::fluidPage(
-      
-      #Set the title
-      shiny::titlePanel("Phenotyping exploration APP"),
-      
-      #We want a two panel layout, one in the left containing the input parameters and the output in the right
-      shiny::sidebarLayout(
-        #Set the first column (which contains the user defined parameters)
-        shiny::sidebarPanel(
-          #ID and width
-          id="sidebar",
-          
-          shiny::fluidRow(
-            #Select Image to be analyzed
-            shiny::column(7, shiny::selectInput("Data_Image_name", "Image from data", sort(Images_in_Data), multiple = FALSE)),
-            #Select the marker to be analyzed
-            shiny::column(5, shiny::selectInput("Data_Phenotype_name", "Phenotype", sort(Phenotypes), multiple = FALSE))
+    {
+      user_interface <- shiny::fluidPage(
+        
+        #Set the title
+        shiny::titlePanel("Phenotyping exploration APP"),
+        
+        #We want a two panel layout, one in the left containing the input parameters and the output in the right
+        shiny::sidebarLayout(
+          #Set the first column (which contains the user defined parameters)
+          shiny::sidebarPanel(
+            #ID and width
+            id="sidebar",
+            
+            shiny::fluidRow(
+              #Select Image to be analyzed
+              shiny::column(7, shiny::selectInput("Data_Image_name", "Image from data", sort(Images_in_Data), multiple = FALSE)),
+              shiny::column(2, shinyWidgets::materialSwitch("Change_coords", "Pixel/dist", value = FALSE)),
+              shiny::column(2, shiny::conditionalPanel(condition = "input.Change_coords == '1'",
+                                                       shiny::textInput("Ratio", "pixel size", value = "1")
+              ))),
+            #Real image to be displayed
+            shiny::fluidRow(
+              #Select the real image to be displayed
+              shiny::column(7, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
+              #Select the channel to be displayed
+              shiny::column(5, shiny::selectInput("Channel", "Channel to display", Channels_in_images, multiple = FALSE))
+            ),
+            
+            #Add the check box
+            shiny::fluidRow(
+              shinyWidgets::virtualSelectInput("Checkbox", label = "Phenotypes to display", 
+                                               choices = sort(Phenotypes), 
+                                               selected = sort(Phenotypes),  
+                                               search = TRUE,
+                                               multiple = TRUE)
+            ),
+            
+            #Image parameters
+            shiny::fluidRow(
+              #Select the min point of the image
+              shiny::column(6, shiny::sliderInput("Min_Image", "Absolute Black", value = 0, min = 0, max = 100, step = 1)),
+              #Select the max point of the image
+              shiny::column(6, shiny::sliderInput("Max_Image", "Absolute White", value = 100, min = 0, max = 100, step = 1))
+              
+            ),
+            shiny::fluidRow(
+              #Select the Gamma
+              shiny::column(6, shiny::sliderInput("Gamma", "Gamma", value = 0, min = -3, max = +3, step = 0.01)),
+              #Select the image resolution
+              shiny::column(3, shiny::selectInput("Res", "Image Res", c('Very Low' = 300, Low = 500, Mid = 750, High = 1000, Original = 1400), selected = 500, multiple = FALSE)),
+              #Select the equalization
+              shiny::column(3, shiny::selectInput("Equalize", "Equalize", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE))
+            ),
+            
+            #Finally add a couple of rows more with extra options and the final result
+            shiny::fluidRow(
+              shiny::column(4, shiny::selectInput("X_flip", "Flip X image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
+              shiny::column(4, shiny::selectInput("Y_flip", "Flip Y image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
+              shiny::column(4, shiny::actionButton("reset", shiny::icon("redo"), label = "Reset selection"))
+            ),
+            #The UI will be completed with summary tables of the sample
+            shiny::fluidRow(
+              shiny::column(12, htmltools::p("Sample Summary: ", shiny::tableOutput("Summary")))
+            )
           ),
           
-          #Add the check box
-          shiny::fluidRow(
-            shinyWidgets::virtualSelectInput("Checkbox", label = "Phenotypes to display", 
-                                             choices = sort(Phenotypes), 
-                                             selected = sort(Phenotypes),  
-                                             search = TRUE,
-                                             multiple = TRUE)
-          ),
-          
-          shiny::fluidRow(
-            #Select the real image to be displayed
-            shiny::column(7, shiny::selectInput("Real_Image_name", "Image to display", sort(Real_Images), multiple = FALSE)),
-            #Select the channel to be displayed
-            shiny::column(5, shiny::selectInput("Channel", "Channel to display", Channels_in_images, multiple = FALSE))
-          ),
-          shiny::fluidRow(
-            #Select the min point of the image
-            shiny::column(4, shiny::sliderInput("Min_Image", "Absolute Black", value = 0, min = 0, max = 100, step = 1)),
-            #Select the max point of the image
-            shiny::column(4, shiny::sliderInput("Max_Image", "Absolute White", value = 100, min = 0, max = 100, step = 1)),
-            shiny::column(2, shinyWidgets::materialSwitch("Change_coords", "Pixel/dist", value = FALSE)),
-            shiny::column(2, shiny::conditionalPanel(condition = "input.Change_coords == '1'",
-                                                     shiny::textInput("Ratio", "pixel size", value = "1")
-            ))
-          ),
-          shiny::fluidRow(
-            #Select the Gamma
-            shiny::column(6, shiny::sliderInput("Gamma", "Gamma", value = 0, min = -3, max = +3, step = 0.01)),
-            #Select the image resolution
-            shiny::column(3, shiny::selectInput("Res", "Image Res", c('Very Low' = 300, Low = 500, Mid = 750, High = 1000, HD = 1400), selected = 500, multiple = FALSE)),
-            #Select the equalization
-            shiny::column(3, shiny::selectInput("Equalize", "Equalize", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE))
-          ),
-          
-          #Finally add a couple of rows more with extra options and the final result
-          shiny::fluidRow(
-            shiny::column(4, shiny::selectInput("X_flip", "Flip X image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
-            shiny::column(4, shiny::selectInput("Y_flip", "Flip Y image", c(YES = TRUE, NO = FALSE), selected = FALSE, multiple = FALSE)),
-            shiny::column(4, shiny::actionButton("reset", shiny::icon("redo"), label = "Reset selection"))
-          ),
-          #The UI will be completed with summary tables of the sample
-          shiny::fluidRow(
-            shiny::column(8, htmltools::p("Sample Summary: ", shiny::tableOutput("Summary"))),
-            shiny::column(4, htmltools::p("Selected cells: ", shiny::tableOutput("Cell_selection")))
+          #Set the outcome columns
+          shiny::mainPanel(
+            #First row will have the Photo and the overview of marker intensity by cell
+            shiny::fluidRow(
+              shiny::column(5, shiny::plotOutput("Photo",
+                                                 #Controls for zoom in
+                                                 dblclick = "Photo_dblclick",
+                                                 brush = shiny::brushOpts(id = "Photo_brush",
+                                                                          resetOnNew = TRUE)
+              )
+              ),
+              shiny::column(5, ggiraph::girafeOutput("All_phenotypes"))
+            ),
+            #Second row will contain the positive cells table and the heatmap
+            shiny::fluidRow(
+              shiny::column(4, htmltools::p("Selected cells: ", shiny::tableOutput("Cell_selection"))),
+              shiny::column(5, shiny::plotOutput("Heatmap"))
+            )
           )
         ),
-        
-        #Set the outcome columns
-        shiny::mainPanel(
-          #First row will have the Photo and the overview of marker intensity by cell
-          shiny::fluidRow(
-            shiny::column(5, shiny::plotOutput("Photo",
-                                               #Controls for zoom in
-                                               dblclick = "Photo_dblclick",
-                                               brush = shiny::brushOpts(id = "Photo_brush",
-                                                                        resetOnNew = TRUE)
-            )
-            ),
-            shiny::column(5, ggiraph::girafeOutput("All_phenotypes"))
-          ),
-          #Second row will contain the positive cells and the histogram
-          shiny::fluidRow(
-            shiny::column(5, ggiraph::girafeOutput("Selected_phenotypes")),
-            shiny::column(5, shiny::plotOutput("Heatmap"))
-          )
-        )
-      ),
-      shiny::tags$head(shiny::tags$style(
-        htmltools::HTML('
+        shiny::tags$head(shiny::tags$style(
+          htmltools::HTML('
          #sidebar {
             background-color: #fad2d2;
         }
@@ -5842,7 +7089,10 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
         body, label, input, button, select { 
           font-family: "Arial";
         }')))
-    )
+      )
+    }
+    
+    
     
     #BUILD THE SERVER
     server <- function(input, output, session){
@@ -5856,7 +7106,7 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
       Equalize <- shiny::reactive(input$Equalize)
       #Reactive expression to control the graphs
       Case_id <- shiny::reactive(input$Data_Image_name)
-      Variable <- shiny::reactive(input$Data_Phenotype_name)
+      
       X_flip <- shiny::reactive(input$X_flip)
       Y_flip <- shiny::reactive(input$Y_flip)
       ranges <- shiny::reactiveValues(x = NULL, y = NULL)
@@ -5868,16 +7118,15 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
       #Control the data source
       Source_DATA <- shiny::reactive({
         Final_DATA <- DATA %>% dplyr::filter(Subject_Names == Case_id())
-        Final_DATA
+        #Modify pixel values if required
+        if(as.logical(Pixel_dist_conversion())){
+          Final_DATA$X <- Final_DATA$X * as.numeric(Pixel_dist_ratio())
+          Final_DATA$Y <- Final_DATA$Y * as.numeric(Pixel_dist_ratio())
+        }
+        #Return the final data
+        return(Final_DATA)
       })
-      #Control de X and Y axis for photo re-dimension
-      Dimensions <- shiny::reactive({
-        DATA <- Source_DATA()
-        list(x_min = min(DATA$X),
-             x_max = max(DATA$X),
-             y_min = min(DATA$Y),
-             y_max = max(DATA$Y))
-      })
+      
       #Control the checkbox output
       Checkbox_output <- shiny::reactive(input$Checkbox)
       
@@ -5888,34 +7137,8 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
         #Perform flip and flop if required
         if(as.logical(X_flip())) Photo <- Photo %>% magick::image_flop()
         if(as.logical(Y_flip())) Photo <- Photo %>% magick::image_flip()
-        
-        #Crop it as necessary and redimension
-        x_min <- Dimensions()[["x_min"]]
-        x_max <- Dimensions()[["x_max"]]
-        x_dim <- ceiling(x_max - x_min)
-        y_min <- Dimensions()[["y_min"]]
-        y_max <- Dimensions()[["y_max"]]
-        y_dim <- ceiling(y_max - y_min)
-        
-        #If images are in pixels and cell coordinates in distance then convert distances to pixels
-        if(as.logical(Pixel_dist_conversion())){
-          geometry_dim <- str_c(x_dim/as.numeric(Pixel_dist_ratio()), "x", y_dim/as.numeric(Pixel_dist_ratio()), 
-                                "+", 
-                                x_min/as.numeric(Pixel_dist_ratio()), "+", y_min/as.numeric(Pixel_dist_ratio()))
-        }
-        #If no conversion required then proceed
-        else{
-          geometry_dim <- str_c(x_dim, "x", y_dim, "+", x_min, "+", y_min)
-        }
-        Photo <- Photo %>% magick::image_crop(geometry = geometry_dim)
-        
-        Image_Resolution <- str_c("X", Resolution())
-        
-        Photo <- magick::image_scale(Photo, Image_Resolution)
-        
         #Perform image equalization as requested by user
         if(as.logical(Equalize())) Photo <- Photo %>% magick::image_equalize()
-        
         #Perform image white adjustment
         Photo <- Photo %>% 
           magick::image_level(black_point = Photo_min(),
@@ -5923,33 +7146,43 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
                               mid_point = Photo_gamma())
         
         
-        #Transform to raster and generate plot
-        Photo <- Photo %>% magick::image_raster()
-        
-        #Change the axis to coordinate all three plots displayed
-        Photo$x <- Photo$x - min(Photo$x)
-        Photo$y <- Photo$y - min(Photo$y)
-        Photo$x <- (Photo$x / max(Photo$x)) * x_max
-        Photo$y <- (Photo$y / max(Photo$y)) * y_max
-        
-        #Return the result
-        Photo
+        ##Obtain dimensions (these will set the axis limits) BEFORE the resolution is modified
+        Photo_Dim <- magick::image_info(Photo)
+        #Change resolution if appropiate
+        if(as.numeric(Resolution() != 1400)){
+          Image_Resolution <- str_c("X", Resolution())
+          Photo <- magick::image_scale(Photo, Image_Resolution)
+        }
+        return(list(Photo = Photo,
+                    Dims = Photo_Dim))
       })
+      
+      Photo_plot_reactive <- shiny::reactive({
+        Photo <- Photo_reactive()[["Photo"]]
+        Photo_Dim <- Photo_reactive()[["Dims"]]
+        #Return the result as a scaffold ggplot_object
+        Photo_plot <- ggplot() + 
+          annotation_raster(Photo, xmin = 0, xmax = Photo_Dim$width, ymin = 0, ymax = Photo_Dim$height, interpolate = TRUE)+
+          scale_x_continuous(limits = c(0, Photo_Dim$width)) +
+          scale_y_continuous(limits = c(0, Photo_Dim$height)) +
+          coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
+          theme(axis.title = element_blank(),
+                axis.text = element_blank(),
+                axis.ticks = element_blank(),
+                axis.line = element_blank(),
+                panel.background = element_rect(fill = "black"),
+                panel.grid = element_blank())
+        return(Photo_plot)
+      }) 
       
       #Print the photo
       output$Photo <- shiny::renderPlot({
         #Plot the result
-        try(Photo <- Photo_reactive())
+        try(Photo <- Photo_plot_reactive())
         
         #If the photo returns an error return the point image
         if(berryFunctions::is.error(Photo)){
           Final_DATA <- Source_DATA()
-          x_max <- Dimensions()[["x_max"]]
-          y_max <- Dimensions()[["y_max"]]
-          Final_DATA$X <- Final_DATA$X - min(Final_DATA$X)
-          Final_DATA$Y <- Final_DATA$Y - min(Final_DATA$Y)
-          Final_DATA$X <- (Final_DATA$X / max(Final_DATA$X)) * x_max
-          Final_DATA$Y <- (Final_DATA$Y / max(Final_DATA$Y)) * y_max
           
           Photo_plot <-
             Final_DATA %>% 
@@ -5957,8 +7190,8 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
             geom_point(aes(x = X, y = Y),
                        color = "white",
                        size = 2.5) +
-            scale_x_continuous(limits = c(min(Final_DATA$X) - 50, max(Final_DATA$X) + 50)) +
-            scale_y_continuous(limits = c(min(Final_DATA$Y) - 50, max(Final_DATA$Y) + 50)) +
+            scale_x_continuous(limits = c(min(Final_DATA$X), max(Final_DATA$X))) +
+            scale_y_continuous(limits = c(min(Final_DATA$Y), max(Final_DATA$Y))) +
             coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
             theme(axis.title = element_blank(),
                   axis.text = element_blank(),
@@ -5974,18 +7207,7 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
         
         else{
           #Generate the plot
-          Photo_plot <- ggplot() + geom_raster(aes(x = x, y = y, fill = col), data = Photo) + 
-            scale_fill_identity() +
-            scale_x_continuous(limits = c(min(Photo$x) - 50, max(Photo$x) + 50)) +
-            scale_y_continuous(limits = c(min(Photo$y) - 50, max(Photo$y) + 50)) +
-            coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)+
-            theme(axis.title = element_blank(),
-                  axis.text = element_blank(),
-                  axis.ticks = element_blank(),
-                  axis.line = element_blank(),
-                  panel.background = element_rect(fill = "black"),
-                  panel.grid = element_blank())
-          return(Photo_plot)
+          return(Photo)
         }
         
       }, res = 300)
@@ -6008,12 +7230,7 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
         shiny::reactive({
           #Get sample data and change the axis to coordinate all three plots displayed
           Final_DATA <- Source_DATA()
-          x_max <- Dimensions()[["x_max"]]
-          y_max <- Dimensions()[["y_max"]]
-          Final_DATA$X <- Final_DATA$X - min(Final_DATA$X)
-          Final_DATA$Y <- Final_DATA$Y - min(Final_DATA$Y)
-          Final_DATA$X <- (Final_DATA$X / max(Final_DATA$X)) * x_max
-          Final_DATA$Y <- (Final_DATA$Y / max(Final_DATA$Y)) * y_max
+          #Get the min and max of the photo before selecting the required phenotypes
           plot_x_min <- min(Final_DATA$X)
           plot_x_max <- max(Final_DATA$X)
           plot_y_min <- min(Final_DATA$Y)
@@ -6023,7 +7240,7 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
           Final_DATA <- Final_DATA %>% dplyr::filter(Phenotype %in% Checkbox_output()) 
           
           #Import the photo
-          try(Photo <- Photo_reactive())
+          try(Photo <- Photo_plot_reactive())
           
           #If image not available plot without image
           if(berryFunctions::is.error(Photo)){
@@ -6046,8 +7263,8 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
                       panel.background = element_rect(fill = "black"),
                       legend.position = "bottom",
                       legend.text = element_text(size = 10)) +
-                scale_x_continuous(limits = c(plot_x_min-50, x_max+50)) +
-                scale_y_continuous(limits = c(plot_y_min-50,  plot_y_max+50)) +
+                scale_x_continuous(limits = c(plot_x_min, plot_x_max)) +
+                scale_y_continuous(limits = c(plot_y_min,  plot_y_max)) +
                 coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)
             )
           }
@@ -6055,116 +7272,28 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
           else{
             return(
               #Generate the final plot
-              Final_DATA %>% 
-                ggplot() +
-                geom_raster(aes(x = x, y = y, fill = col), data = Photo) +
-                scale_fill_identity() +
+              Photo +
                 scale_color_identity()+
                 ggiraph::geom_point_interactive(aes(x = X, y = Y, group = Phenotype, color = Color_code,
                                                     data_id = Cell_no, 
                                                     tooltip = str_c(as.character(Cell_no)," Type = ", as.character(Phenotype)),
                                                     hover_nearest = FALSE),
-                                                size = 2) +
+                                                size = 2,
+                                                data = Final_DATA) +
                 cowplot::theme_cowplot()+
                 guides(color = "none") +
-                theme(axis.line = element_blank(),
-                      axis.ticks = element_blank(),
+                theme(axis.title = element_blank(),
                       axis.text = element_blank(),
-                      axis.title = element_blank(),
+                      axis.ticks = element_blank(),
+                      axis.line = element_blank(),
                       panel.background = element_rect(fill = "black"),
-                      legend.position = "bottom",
-                      legend.text = element_text(size = 10)) +
-                scale_x_continuous(limits = c(plot_x_min-50, x_max+50)) +
-                scale_y_continuous(limits = c(plot_y_min-50,  plot_y_max+50)) +
-                coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)
+                      panel.grid = element_blank())
             )
           }
         })
       #Send plot to UI
       output$All_phenotypes <- ggiraph::renderGirafe({
         plot <- ggiraph::girafe(code = print(Cell_Phenotype_plot()),
-                                options = list(
-                                  ggiraph::opts_hover(css = "stroke:black;cursor:pointer;", reactive = TRUE),
-                                  ggiraph::opts_selection(type = "multiple", css = "fill:#FF3333;stroke:black;")
-                                )
-        )
-        plot
-      })
-      
-      #Selected phenotype
-      Selected_Phenotype_plot <- 
-        shiny::reactive({
-          Final_DATA <- Source_DATA()
-          x_max <- Dimensions()[["x_max"]]
-          y_max <- Dimensions()[["y_max"]]
-          Final_DATA$X <- Final_DATA$X - min(Final_DATA$X)
-          Final_DATA$Y <- Final_DATA$Y - min(Final_DATA$Y)
-          Final_DATA$X <- (Final_DATA$X / max(Final_DATA$X)) * x_max
-          Final_DATA$Y <- (Final_DATA$Y / max(Final_DATA$Y)) * y_max
-          plot_x_min <- min(Final_DATA$X)
-          plot_x_max <- max(Final_DATA$X)
-          plot_y_min <- min(Final_DATA$Y)
-          plot_y_max <- max(Final_DATA$Y)
-          
-          #Try to Import the photo
-          try(Photo <- Photo_reactive())
-          
-          #If image not available plot without image
-          if(berryFunctions::is.error(Photo)){
-            return(
-              Final_DATA %>% dplyr::filter(Phenotype == Variable()) %>%
-                ggplot() +
-                ggiraph::geom_point_interactive(aes(x = X, y = Y, color = Color_code,
-                                                    data_id = Cell_no, 
-                                                    tooltip = str_c(as.character(Cell_no)," Type = ", as.character(Phenotype)),
-                                                    hover_nearest = FALSE),
-                                                size = 2.5) +
-                scale_color_identity()+
-                cowplot::theme_cowplot()+
-                theme(axis.line = element_blank(),
-                      axis.ticks = element_blank(),
-                      axis.text = element_blank(),
-                      axis.title = element_blank(),
-                      panel.background = element_rect(fill = "black"),
-                      legend.position = "bottom",
-                      legend.text = element_text(size = 10)) +
-                scale_x_continuous(limits = c(plot_x_min-50, plot_x_max+50)) +
-                scale_y_continuous(limits = c(plot_y_min-50, plot_y_max+50)) +
-                coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)
-            )
-          }
-          #If everything ok proceed as usual
-          else{
-            return(
-              Final_DATA %>% dplyr::filter(Phenotype == Variable()) %>%
-                ggplot() +
-                geom_raster(aes(x = x, y = y, fill = col), data = Photo) +
-                scale_fill_identity() +
-                ggiraph::geom_point_interactive(aes(x = X, y = Y, color = Color_code,
-                                                    data_id = Cell_no, 
-                                                    tooltip = str_c(as.character(Cell_no)," Type = ", as.character(Phenotype)),
-                                                    hover_nearest = FALSE),
-                                                size = 2.5) +
-                scale_color_identity()+
-                cowplot::theme_cowplot()+
-                theme(axis.line = element_blank(),
-                      axis.ticks = element_blank(),
-                      axis.text = element_blank(),
-                      axis.title = element_blank(),
-                      panel.background = element_rect(fill = "black"),
-                      legend.position = "bottom",
-                      legend.text = element_text(size = 10)) +
-                scale_x_continuous(limits = c(plot_x_min-50, plot_x_max+50)) +
-                scale_y_continuous(limits = c(plot_y_min-50, plot_y_max+50)) +
-                coord_cartesian(xlim = ranges$x, ylim = ranges$y, expand = FALSE)
-            )
-          }
-          
-        })
-      #Send plot to UI
-      output$Selected_phenotypes <- ggiraph::renderGirafe({
-        #Generate the final plot
-        plot <- ggiraph::girafe(code = print(Selected_Phenotype_plot()),
                                 options = list(
                                   ggiraph::opts_hover(css = "stroke:black;cursor:pointer;", reactive = TRUE),
                                   ggiraph::opts_selection(type = "multiple", css = "fill:#FF3333;stroke:black;")
@@ -6207,16 +7336,14 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
       
       #Selected cells and reset button
       selected_cells_phenotype <- shiny::reactive(input$All_phenotypes_selected)
-      selected_cells_positive <- shiny::reactive(input$Selected_phenotypes_selected)
       #What to do in case the user hits the reset button
       shiny::observeEvent(input$reset, {
         session$sendCustomMessage(type = 'All_phenotypes_set', message = character(0))
-        session$sendCustomMessage(type = 'Selected_phenotypes_set', message = character(0))
       })
       #Generate the output tibble for the selected cells
       output$Cell_selection <- shiny::renderTable({
         #Get cell_no in both plots and remove duplicates
-        Cells <- unique(c(selected_cells_phenotype(), selected_cells_positive()))
+        Cells <- unique(selected_cells_phenotype())
         #Get Marker data and threshold data an start processing
         Selected_Cells <- Source_DATA() %>% dplyr::filter(Cell_no %in% Cells) %>% dplyr::select(Cell_no, X, Y, Phenotype)
         Final_cells <- Selected_Cells %>% dplyr::count(Phenotype)
@@ -6226,7 +7353,7 @@ Phenotyping_evaluator_shiny_app_launcher <- cmpfun(
       #Generate the heatmap
       output$Heatmap <- shiny::renderPlot({
         #Get cell_no in both plots and remove duplicates
-        Cells <- unique(c(selected_cells_phenotype(), selected_cells_positive()))
+        Cells <- unique(selected_cells_phenotype())
         
         #Get Marker data and threshold data an start processing
         Selected_Cells <- Source_DATA() %>% dplyr::filter(Cell_no %in% Cells) 
@@ -6493,6 +7620,120 @@ Concordance_calculator <- cmpfun(function(...,
   return(By_Patient_results)
 },
 options = list(optimize = 3))
+
+Cell_image_plot_generator <- 
+  cmpfun(function(Image_directory = NULL,
+                  Channel_to_display = NULL,
+                  Image_rotate = NULL,
+                  Image_x_flip = FALSE,
+                  Image_y_flip = FALSE,
+                  Gamma_level = NULL,
+                  Equalize = FALSE,
+                  Black_level = NULL,
+                  White_level = NULL,
+                  
+                  DATA = NULL,
+                  Image_name = NULL,
+                  Color_by = NULL,
+                  Point_size = 1,
+                  Pixel_distance_ratio = NULL
+  ){
+    on.exit(gc())
+    
+    DATA <- DATA
+    #Check arguments
+    if(!is.null(Image_rotate)) {
+      if(!all(is.numeric(Image_rotate), Image_rotate >= 0, Image_rotate <= 360, Image_rotate%%1 == 0)) stop("Image_rotate must be NULL or a numeric value between 0 and 360")
+    }
+    if(!is.logical(Image_x_flip)) stop("Image_x_flip must be a logical value")
+    if(!is.logical(Image_y_flip)) stop("Image_y_flip must be a logical value")
+    if(!all(is.numeric(Gamma_level), Gamma_level >= -3, Gamma_level <= 3)) stop ("Gamma_level must be a numeric value between -3 and +3")
+    if(!is.logical(Equalize)) stop("Equalize must be a logical value")
+    if(!all(is.numeric(Black_level), Black_level >= 0, Black_level <= 100, Black_level < White_level)) stop("Black_level must be a numeric value between 0 - 100 and smaller than White_level")
+    if(!all(is.numeric(White_level), White_level >= 0, White_level <= 100)) stop("White_level must be a numeric value between 0 - 100")
+    
+    if(!identical(names(DATA)[1:4], c("Cell_no", "X", "Y", "Subject_Names"))) stop("DATA must be adequately formatted")
+    if(!Image_name %in% DATA[["Subject_Names"]]) stop(paste0(Image_name, " not found in DATA Subject_Names"))
+    if(!any(is.null(Color_by), Color_by %in% names(DATA))) stop(paste0(Color_by, " not found in DATA"))
+    if(!all(is.numeric(Point_size), Point_size > 0)) stop("Point_size must be a numeric value > 0")
+    if(!is.null(Pixel_distance_ratio)) {
+      if(!all(is.numeric(Pixel_distance_ratio), Pixel_distance_ratio > 0)) stop("Pixel_distance_ratio must be NULL or a numeric value > 0")
+    }
+    
+    #Lets get the data and select only the cells and the selected column specifying the color
+    DATA <- DATA %>% dplyr::filter(Subject_Names == Image_name)
+    
+    #Select the desired variables
+    if(!is.null(Color_by)) DATA <- DATA %>% dplyr::select(1:4, all_of(Color_by)) else DATA <- DATA %>% dplyr::select(1:4)
+    if(!is.null(Color_by)) names(DATA)[5] <- "Variable"
+    
+    #Adjust to pixel ratio if required
+    if(!is.null(Pixel_distance_ratio)){
+      DATA$X <- DATA$X * Pixel_distance_ratio
+      DATA$Y <- DATA$Y * Pixel_distance_ratio
+    }
+    
+    #Work on the image
+    Image <- magick::image_read(Image_directory)[Channel_to_display] #Get original Image
+    if(Image_x_flip) Image <- Image %>% magick::image_flop()
+    if(Image_y_flip) Image <- Image %>% magick::image_flip()
+    if(!is.null(Image_rotate)) Image <- Image %>% magick::image_rotate(degrees = Image_rotate)
+    #Get image info
+    Image_data <- magick::image_info(Image)
+    Image_width <- Image_data$width
+    Image_height <- Image_data$height
+    
+    #Perform image modifications
+    if(Equalize) Image <- Image %>% magick::image_equalize() #Equalize if necesary
+    Image <-  Image %>% magick::image_level(black_point = Black_level,
+                                            white_point = White_level,
+                                            mid_point = 10^Gamma_level) #Chane withe, black and gamma
+    
+    #If color needs to be applied
+    if(!is.null(Color_by)){
+      #If its numeric
+      if(is.numeric(DATA[["Variable"]])){
+        ggplot() +
+          annotation_raster(Image, xmin = 0, xmax = Image_width, ymin = 0, ymax = Image_height, interpolate = TRUE) +
+          geom_point(aes(x = X, y = Y, color = Variable), size = Point_size, data = DATA) +
+          scale_color_viridis_c() +
+          guides(color = guide_legend(title = Color_by)) +
+          theme(axis.title = element_blank(),
+                axis.text = element_blank(),
+                axis.ticks = element_blank(),
+                axis.line = element_blank(),
+                panel.grid = element_blank())
+      }
+      
+      #If is character
+      else{
+        ggplot() +
+          annotation_raster(Image, xmin = 0, xmax = Image_width, ymin = 0, ymax = Image_height, interpolate = TRUE) +
+          geom_point(aes(x = X, y = Y, color = Variable), size = Point_size, data = DATA) +
+          scale_color_viridis_d() +
+          guides(color = guide_legend(title = Color_by)) +
+          theme(axis.title = element_blank(),
+                axis.text = element_blank(),
+                axis.ticks = element_blank(),
+                axis.line = element_blank(),
+                panel.grid = element_blank())
+      }
+    }
+    
+    #If color is not required
+    if(is.null(Color_by)){
+      ggplot() +
+        annotation_raster(Image, xmin = 0, xmax = Image_width, ymin = 0, ymax = Image_height, interpolate = TRUE) +
+        geom_point(aes(x = X, y = Y), color = "grey", size = Point_size, data = DATA) +
+        theme(axis.title = element_blank(),
+              axis.text = element_blank(),
+              axis.ticks = element_blank(),
+              axis.line = element_blank(),
+              panel.grid = element_blank())
+    }
+    
+  }, 
+  options = list(optimize = 3))
 
 ############STEP 4 - HETEROGENEITY ANALYSIS - REQUIRED FUNCTIONS###########
 message("Importing functions: STEP 4 - HETEROGENEITY ANALYSIS")
@@ -9117,32 +10358,35 @@ Multi_level_modelling_function <- cmpfun(
     print(summary(Model))
     
     #Make predictions
-    Prediction <- expand_grid(unique(Interim$DIST),
-                              unique(Interim$Clin_Group))
-    names(Prediction) <- c("DIST", "Clin_Group")
-    Prediction$Density_Target <- 0
-    Prediction$Cell_Of_Origin_ID <- unique(Interim$Cell_Of_Origin_ID)[1]
-    Prediction$Prediction <- predict(Model, newdata = Prediction)
-    
-    
-    #plot results
-    plot(Prediction %>%
-           ggplot(aes(x = DIST, y  = Prediction, group = Clin_Group, color = Clin_Group)) +
-           geom_line(linewidth = 1.5) +
-           cowplot::theme_cowplot() +
-           scale_x_continuous(str_c("Scaled Distance from ", Cell_Of_Origin, sep = "")) +
-           scale_y_continuous(str_c("Scaled number of ", Target_cell, " cells", sep = "")) +
-           scale_color_viridis_d(Clinical_var)
+    tryCatch({
+      Prediction <- expand_grid(unique(Interim$DIST),
+                                unique(Interim$Clin_Group))
+      names(Prediction) <- c("DIST", "Clin_Group")
+      Prediction$Density_Target <- 0
+      Prediction$Cell_Of_Origin_ID <- unique(Interim$Cell_Of_Origin_ID)[1]
+      Prediction$Prediction <- predict(Model, newdata = Prediction)
+      #plot results
+      plot(Prediction %>%
+             ggplot(aes(x = DIST, y  = Prediction, group = Clin_Group, color = Clin_Group)) +
+             geom_line(linewidth = 1.5) +
+             cowplot::theme_cowplot() +
+             scale_x_continuous(str_c("Scaled Distance from ", Cell_Of_Origin, sep = "")) +
+             scale_y_continuous(str_c("Scaled number of ", Target_cell, " cells", sep = "")) +
+             scale_color_viridis_d(Clinical_var))
+    },
+    error = function(cond) print("Unable to calculate Multi-level model predictions. Consider subsetting samples or modifying cumulative interaction parameters.")
     )
+    
     
     #Calculate R2 values if required by user
     if(Calculate_R2){
+      print("Calculating model R2 - This can take some time...")
       try(
-      Model_R2 <- 
-        partR2::partR2(Model, partvars = c("DIST", "Clin_Group:DIST", "Density_Target"), R2_type = "conditional", nboot = N_bootstrap, data = Interim)
-    )
-    if(berryFunctions::is.error(Model_R2)) warning("Unable to calculate predictos R^2 for the current model. This may occur with very large datasets")
-    else print(summary(Model_R2))
+        Model_R2 <- 
+          partR2::partR2(Model, partvars = c("DIST", "Clin_Group:DIST", "Density_Target"), R2_type = "conditional", nboot = N_bootstrap, data = Interim)
+      )
+      if(berryFunctions::is.error(Model_R2)) warning("Unable to calculate predictos R^2 for the current model. This may occur with very large datasets")
+      else print(summary(Model_R2))
     }
     
     
@@ -10323,6 +11567,282 @@ SPIAT_entropy_gradient_generator <- cmpfun(
     return(RESULTS)
   },
   options = list(optimize = 3))
+
+Cell_to_pixel_distance_calculator <- 
+  cmpfun(
+    function(N_cores = NULL,
+             Directory = NULL,
+             Image_rotate = NULL,
+             Image_x_flip = NULL,
+             Image_y_flip = NULL,
+             DATA = NULL,
+             Phenotypes_included = NULL,
+             Pixel_distance_ratio = NULL){
+      
+      #Specify that on exit rerturn to single core and run gc
+      on.exit({
+        future::plan("future::sequential")
+        gc()
+      })
+      
+      #Argument check general arguments
+      Argument_checker <- c(N_cores_OK = (N_cores >= 1 & N_cores%%1 == 0),
+                            Empty_directory_OK = length(dir(Directory)) >= 1,
+                            Image_rotate_OK = if(!is.null(Image_rotate)) {
+                              all(is.numeric(Image_rotate), Image_rotate >= 0, Image_rotate <= 360, Image_rotate%%1 == 0)
+                            } else(TRUE),
+                            Image_x_flip_OK = is.logical(Image_x_flip),
+                            Image_y_flip_OK = is.logical(Image_y_flip),
+                            DATA_OK = all(identical(names(DATA)[c(1:4)], c("Cell_no", "X", "Y", "Subject_Names")), "Phenotype" %in% names(DATA)),
+                            Phenotypes_included_OK = all(Phenotypes_included %in% DATA[["Phenotype"]]),
+                            Pixel_distance_ratio_OK = if(!is.null(Pixel_distance_ratio)) {
+                              all(is.numeric(Pixel_distance_ratio), Pixel_distance_ratio > 0)
+                            } else(TRUE)
+      )
+      
+      Stop_messages <- c(N_cores_OK = "N_cores must be an integer value > 0",
+                         Empty_directory_OK = "No files found at the directory provided. Please check out the path.",
+                         Image_rotate_OK = "Image_rotate must be either NULL or a integer value between 0 and 360",
+                         Image_x_flip_OK = "Image_x_flip must be a logical value",
+                         Image_y_flip_OK = "Image_y_flip must be a logical value",
+                         DATA_OK = "DATA must be adequately formatted and must contain a column containing Phenotype information",
+                         Phenotypes_included_OK = paste0("Phenotypes_included must be any of the following: ", str_c(DATA[["Phenotype"]], collapse = ", ")),
+                         Pixel_distance_ratio_OK = "Pixel_distance_ratio must be either NULL or a numeric value > 0"
+      )
+      #Check arguments and stop if necessary
+      if(!all(Argument_checker)){
+        stop(cat(Stop_messages[!Argument_checker],
+                 fill = sum(!Argument_checker)))
+      }
+      
+      #Check specifically that directory contains adequate files, and that these are present in Subject_Names of data
+      Full_image_names <- dir(Directory, full.names = TRUE)
+      Image_names <- dir(Directory, full.names = FALSE)
+      
+      #Select only the thresholded and not the tissue masks
+      Full_image_names_selected <- Full_image_names[str_detect(Image_names, "Thresholded")]
+      Image_names_selected <- Image_names[str_detect(Image_names, "Thresholded")]
+      Image_names_selected_list <- str_split(Image_names_selected, "_")
+      
+      
+      #Check that all have been processed using the Pixel_Threshold_calculator
+      if(!all(map_lgl(Image_names_selected_list, ~.[[1]] == "Processed"))){
+        Problematic_images <- Image_names_selected[!map_lgl(Image_names_selected_list, ~.[[1]] == "Processed")]
+        stop(paste0("According to image names, the following images have not been processed using the Pixel_Threshold_calculator: ", str_c(Problematic_images, collapse = ", ")))
+      }
+      if(!all(map_lgl(Image_names_selected_list, ~length(.) == 4))){
+        Problematic_images <- Image_names_selected[!map_lgl(Image_names_selected_list, ~length(.) == 4)]
+        stop(paste0("According to image names, the following images have not been processed using the Pixel_Threshold_calculator: ", 
+                    str_c(Problematic_images, collapse = ", ")))
+      }
+      #Check that all images in the directory are unique
+      if(length(unique(map_chr(Image_names_selected_list, ~.[[2]]))) != length(Image_names_selected_list)){
+        Problematic_images <- map_chr(Image_names_selected_list, ~.[[2]])[duplicated(map_chr(Image_names_selected_list, ~.[[2]]))]
+        stop(paste0("The following image appear to be duplicated in the directory: ", 
+                    str_c(Problematic_images, collapse = ", "),
+                    ". Images must be unique."))
+      }
+      #Check that all images in the directory are from the same target
+      if(length(unique(map_chr(Image_names_selected_list, ~.[[3]]))) != 1){
+        Number_markers <- sort(table(map_chr(Image_names_selected_list, ~.[[3]])), decreasing = TRUE)
+        stop(paste0("Besides ", names(Number_markers)[1], " the directory contains images using the following markers: ", 
+                    str_c(names(Number_markers)[-1], collapse = ", "),
+                    ". A single marker type must be included in the directory"))
+      }
+      #Check that all images in the directory have been thresholded homogenously
+      if(length(unique(map_chr(Image_names_selected_list, ~.[[4]]))) != 1){
+        Number_threshold_strategies <- sort(table(map_chr(Image_names_selected_list, ~.[[4]])), decreasing = TRUE)
+        stop(paste0("Besides ", names(Number_threshold_strategies)[1], " the directory contains images thresholded using the following strategy: ", 
+                    str_c(names(Number_markers)[-1], collapse = ", "),
+                    ". A single threshold strategy must be selected."))
+      }
+      #Check that image names are present in DATA Subject_Names calculating the closest
+      Subject_names_in_images <- map_chr(Image_names_selected_list, ~.[[2]])
+      Subject_names_in_data <- unique(DATA$Subject_Names)
+      
+      #Generate a look up tibble with the image name, the closest name in data$Subject_Names and the image path
+      #Evaluate which subject name in data is the closest one to the subject name in images
+      Closest_name_vector <- map_dbl(Subject_names_in_images, function(Image_name){
+        Distance_vector <- adist(Image_name, Subject_names_in_data, fixed = TRUE, ignore.case = TRUE)
+        which.min(Distance_vector)
+      })
+      Names_tibble <- tibble(Images_names = Subject_names_in_images,
+                             Subject_names_in_data = Subject_names_in_data[Closest_name_vector])
+      Names_tibble$Identical <- apply(Names_tibble, MARGIN = 1, function(Row) identical(Row[[1]], Row[[2]]))
+      
+      #If Subject_Names in data are duplicated then stop the computing
+      if(sum(duplicated(Names_tibble$Subject_names_in_data)) > 0){
+        Duplicated_names_list <- 
+          map(Names_tibble$Subject_names_in_data[duplicated(Names_tibble$Subject_names_in_data)],
+              function(Duplicated_names) unname(unlist(Names_tibble %>% dplyr::filter(Subject_names_in_data == Duplicated_names) %>% dplyr::select(Images_names))))
+        names(Duplicated_names_list) <- str_c(Names_tibble$Subject_names_in_data[duplicated(Names_tibble$Subject_names_in_data)], " in DATA_matched by: ")
+        
+        print(Duplicated_names_list)
+        stop("Multiple image names are matched with same Subject_Names in data. Please check image names in directory.")
+      }
+      
+      #If match is not exact print a message
+      if(sum(!Names_tibble$Identical) > 0){
+        message("Subject names in the following images do not exactly. Approximate match will be used")
+        print(Names_tibble %>% dplyr::filter(!Identical))
+      }
+      
+      #Remove Subject_Names in data not present in Names_tibble
+      if(sum(!unique(DATA$Subject_Names) %in% Names_tibble$Subject_names_in_data) > 0){
+        Absent_Subject_Names <- unique(DATA$Subject_Names)[!unique(DATA$Subject_Names) %in% Names_tibble$Subject_names_in_data]
+        message("The following Subject_Names in DATA are not present in image names: ", 
+                str_c(Absent_Subject_Names, collapse = ", "),
+                ". They will be removed before analysis")
+        DATA <- DATA %>% dplyr::filter(Subject_Names %in% Names_tibble$Subject_names_in_data)
+      }
+      
+      #Generate the final Names_tibble including image path
+      Names_tibble$Image_URL <- Full_image_names_selected
+      
+      #Also note the target being measured (used to name distance column in final result)
+      Target_bein_measured <- Image_names_selected_list[[1]][[3]]
+      
+      #Run a random test with the image with the lowest cell counts
+      Smallest_sample <- (DATA %>% dplyr::count(Subject_Names) %>% arrange(n))[[1,1]] 
+      DATA_smallest <- DATA %>% dplyr::filter(Subject_Names == Smallest_sample)
+      Image_path <- Names_tibble[[which(Names_tibble$Subject_names_in_data == Smallest_sample), 4]]
+      Image <- magick::image_read(as.character(Image_path))
+      if(!is.null(Image_rotate)) Image <- Image %>% magick::image_rotate(degrees = Image_rotate)
+      Image <- Image %>% magick::as_EBImage()
+      Test_image_tibble <- as_tibble(expand.grid(1:dim(Image)[[1]], 1:dim(Image)[[2]]))
+      names(Test_image_tibble) <- c("Y", "X")
+      Test_image_tibble <- Test_image_tibble[c("X", "Y")]
+      Test_image_tibble$Value <- as.vector(Image)
+      if(Image_x_flip) Test_image_tibble$X <- rev(Test_image_tibble$X)
+      if(Image_y_flip) Test_image_tibble$Y <- rev(Test_image_tibble$Y)
+      rm(Image)
+      gc()
+      Test_image_tibble <- Test_image_tibble %>% dplyr::filter(Value != 0)#Remove zero-values
+      if(!is.null(Pixel_distance_ratio)) Test_image_tibble <- Test_image_tibble %>% mutate(X = X*Pixel_distance_ratio, Y = Y*Pixel_distance_ratio)#Apply pixel distance ratio if required
+      
+      #plot both results
+      print(paste0("Generating a sample overlay image using ", Smallest_sample))
+      plot(
+        ggplot() +
+          geom_tile(aes(x = X, y = Y, color = Value), data = Test_image_tibble)+
+          geom_point(aes(x = X, y = Y), color = "red", data = DATA_smallest) +
+          theme_minimal() +
+          guides(color = "none") +
+          scale_x_continuous("", labels = NULL) +
+          scale_y_continuous("", labels = NULL) +
+          theme(panel.grid = element_blank(),
+                panel.background = element_rect(fill = "black"))
+      )
+      
+      #Generate a menu to proceed with compuation
+      answer <- menu(c("Proceed", "Abort"), title = "Check parameters provided and sample image generated. Should the analysis proceed?")
+      #If user decides to stop then abort function and return stop message
+      if(answer == 2) stop("The function has been stopped. Please tune parameters and try again")
+      
+      #If OK then run the final analysis
+      print("Running distance to positive pixel computation")
+      
+      #Will iterate for every image in the names tibble
+      future::plan("future::multisession", workers = N_cores) 
+      options(future.globals.maxSize = Inf, future.rng.onMisuse = "ignore")
+      furrr::furrr_options(scheduling = Inf)
+      
+      RESULTS <- suppressMessages(
+        furrr::future_map_dfr(seq_along(1:nrow(Names_tibble)), function(Index_image){
+          #Import DATA
+          DATA_image <- DATA %>% dplyr::filter(Subject_Names == Names_tibble[["Subject_names_in_data"]][[Index_image]])
+          
+          #Remove Phenotypes not included
+          DATA_image <- DATA_image %>% dplyr::filter(Phenotype %in% Phenotypes_included)
+          
+          #If no phenotypes present in image remove it
+          if(nrow(DATA_image) == 0){
+            message(paste0(Names_tibble$Subject_names_in_data[[Index_image]], " does not contain cells in Phenotypes_included. It will be removed."))
+            return(DATA_image)
+          } 
+          
+          #Import Image
+          Image <- magick::image_read(Names_tibble$Image_URL[[Index_image]])
+          #Apply the image transformations as required by user
+          if(!is.null(Image_rotate)) Image <- Image %>% magick::image_rotate(degrees = Image_rotate)
+          Image <- Image %>% magick::as_EBImage()
+          Image_tibble <- as_tibble(expand.grid(1:dim(Image)[[1]], 1:dim(Image)[[2]]))
+          names(Image_tibble) <- c("Y", "X")
+          Image_tibble <- Image_tibble[c("X", "Y")]
+          Image_tibble$Value <- as.vector(Image)
+          if(Image_x_flip) Image_tibble$X <- rev(Image_tibble$X)
+          if(Image_y_flip) Image_tibble$Y <- rev(Image_tibble$Y)
+          Image_tibble <- Image_tibble %>% dplyr::filter(Value != 0)
+          if(!is.null(Pixel_distance_ratio)) Image_mage_tibble <- Image_mage_tibble %>% mutate(X = X*Pixel_distance_ratio, Y = Y*Pixel_distance_ratio)
+          
+          #Remove image
+          rm(Image)
+          gc()
+          
+          #Cells will be origin, pixels will be targets. 
+          COO_info <- cbind(DATA_image[["X"]], DATA_image[["Y"]])
+          
+          #First calculate min distance to closest neighbors for binary thresholded images
+          if(length(unique(Image_tibble$Value)) == 1){
+            #Calculate the targets
+            Targets <- rtree::RTree(cbind(Image_tibble[["X"]], Image_tibble[["Y"]]))
+            
+            #Calculate the closest pixel
+            Index <- rtree::knn(Targets, COO_info, 1L)
+            Closest_pixel_tibble <- Image_tibble[unlist(Index), c(1,2)]
+            names(Closest_pixel_tibble) <- c("Target_X", "Target_Y")
+            
+            Closest_pixel_tibble <- suppressMessages(bind_cols(COO_info, Closest_pixel_tibble))
+            names(Closest_pixel_tibble)[c(1:2)] <- c("X", "Y")
+            Closest_pixel_tibble <- Closest_pixel_tibble %>% dplyr::mutate(Dist_X = (X - Target_X)^2,
+                                                                           Dist_Y = (Y - Target_Y)^2,
+                                                                           DIST = sqrt(Dist_X + Dist_Y))
+            DATA_image$DIST <- Closest_pixel_tibble$DIST
+            names(DATA_image)[ncol(DATA_image)] <- str_c(Target_bein_measured, "_DIST", collapse = "_")
+            return(DATA_image)
+          }
+          
+          #Then calculate min distance for every value of multithresholded images
+          if(length(unique(Image_tibble$Value)) > 1){
+            #Obtain the unique values
+            Unique_values <- unique(Image_tibble$Value)
+            
+            #Calculate a tibble containing distances to every unique value
+            Closest_pixel_tibble <- 
+              map_dfc(seq_along(1:length(Unique_values)), function(Indivudal_target){
+                Image_tibble <- Image_tibble %>% dplyr::filter(Value == Unique_values[Indivudal_target])
+                
+                Targets <- rtree::RTree(cbind(Image_tibble[["X"]], Image_tibble[["Y"]]))
+                
+                #Calculate the closest pixel
+                Index <- rtree::knn(Targets, COO_info, 1L)
+                Closest_pixel_tibble <- Image_tibble[unlist(Index), c(1,2)]
+                names(Closest_pixel_tibble) <- c("Target_X", "Target_Y")
+                
+                Closest_pixel_tibble <- suppressMessages(bind_cols(COO_info, Closest_pixel_tibble))
+                names(Closest_pixel_tibble)[c(1:2)] <- c("X", "Y")
+                Closest_pixel_tibble <- Closest_pixel_tibble %>% dplyr::mutate(Dist_X = (X - Target_X)^2,
+                                                                               Dist_Y = (Y - Target_Y)^2,
+                                                                               DIST = sqrt(Dist_X + Dist_Y))
+                Closest_pixel_tibble <- Closest_pixel_tibble %>% dplyr::select(DIST)
+                names(Closest_pixel_tibble) <- str_c(Target_bein_measured, "_DIST_", round(Unique_values[Indivudal_target], digits = 3), collapse = "")
+                return(Closest_pixel_tibble)
+              })
+            DATA_image <- bind_cols(DATA_image, Closest_pixel_tibble)
+            return(DATA_image)
+          }
+        }, .progress = TRUE)
+      )
+      
+      #Return to single core
+      future::plan("future::sequential")
+      gc()
+      
+      return(RESULTS)
+      
+    },
+    options = list(optimize = 3)
+  )
 
 ############STEP 6 - NEIGHBORHOOD ANALYSIS - REQUIRED FUNCTIONS###########
 message("Importing functions: STEP 6 - NEIGHBORHOOD ANALYSIS")
@@ -15236,7 +16756,10 @@ message("CSM has been successfully loaded")
 ##Cell_in_edge_remover(STEP 0) is now available. It allows users to remove cells from border before performing analysis
 ##Segmentation_tester (STEP 0), segmentator_tester_app(STEP 0) and Cell_segmentator_quantificator(STEP 0) now allow the user to pre-process nuclear channels to improve cell segmentation results
 ##Bug in segmentator_tester_app (STEP 0) regarding cell border ploting has been solved
-##Multi_level_modelling_function (STEP 5) now allows the user to decide whether to perform pseudoR2 calculation or not (may be computationally intensive)
+##Thresholding_tester_app (STEP 2) has been optimized to process images at higher speed
+##Bug in Thresholding_function (STEP 2) regarding LOCAL multilevel thresholding has been solved
+##Phenotyping_evaluator_shiny_app_launcher (STEP 3) has been optimize to process images at higher speed
+##Multi_level_modelling_function (STEP 5) now allows the user to decide whether to perform pseudoR2 calculation or not (may be computationally intensive) and behaves differently if predictions cannot be calculated
 ##Graphication of >100000 cells (Many STEPS) has been limited to an absolute number of 100000
 ##Distance_analyzer (STEP 5) now allows parallel computation based on future
 ##Trio_Min_Distance_analyzer (STEP 5) now allows parallel computation based on future
@@ -15244,4 +16767,8 @@ message("CSM has been successfully loaded")
 ##Bug in SPIAT_entropy_gradient_generator (STEP 5) related to argument check has been solved
 ##Bug in Neighborhood_voting_function (STEP 6) has been solved (typo in argument specification)
 ##Neighborhood_discovery_function (STEP 6) now also returns dimension reduction
+##New module allows the analysis of in a pixel wise manner. This module includes the following functions:
+##Tissue_mask_generator, Pixel_thresholder, Pixel_Multilevel_thresholder, MFI_calculator, Multi_mask_generator, Pixel_Threshold_calculator, 
+##MFI_Experimet_Calculator, Cell_to_pixel_distance_calculator, Marker_segmentator, Cell_image_plot_generator, Image_thresholding_app_launcher
+
 ############################################################################
