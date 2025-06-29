@@ -3316,7 +3316,6 @@ Marker_segmentator <-
     options = list(optimize = 3)
   )
 
-
 Data_arrange_function <- cmpfun(function(DATA, X, Y, Subject_Names, Markers_to_keep) { 
   
   #Check arguments by generating a argument check vector and message vector
@@ -11702,6 +11701,45 @@ Cell_to_pixel_distance_calculator <-
       #Also note the target being measured (used to name distance column in final result)
       Target_bein_measured <- Image_names_selected_list[[1]][[3]]
       
+      #Check that thresholded images have positive pixels and check that images have adequate numer of target cells
+      #If no phenotypes present in image remove images
+      Images_with_cells <- 
+        map_lgl(Names_tibble$Subject_names_in_data, function(Image_name_in_subject){
+          DATA <- DATA %>% dplyr::filter(Subject_Names == Image_name_in_subject)
+          DATA <- DATA %>% dplyr::filter(Phenotype %in% Phenotypes_included)
+          nrow(DATA) > 0
+        })
+      if(!all(Images_with_cells)){
+        message(paste0("The following image do not have target cells. They will be removed: ", 
+                       str_c(Names_tibble$Subject_names_in_data[!Images_with_cells], collapse = ", "))
+        )
+        Names_tibble <- Names_tibble[Images_with_cells, ]
+      }
+      if(!nrow(Names_tibble) > 0) stop("No images with adequate number of cells.")
+      
+      #Check that images have positive pixels
+      #Will iterate for every image in the names tibble
+      future::plan("future::multisession", workers = N_cores) 
+      options(future.globals.maxSize = Inf, future.rng.onMisuse = "ignore")
+      furrr::furrr_options(scheduling = Inf)
+      Images_with_pixels <-
+        furrr::future_map_lgl(Names_tibble$Image_URL, function(Image){
+          Image <- magick::image_read(Image) %>% magick::as_EBImage()
+          sum(Image) > 0
+        })
+      #Return to single core
+      future::plan("future::sequential")
+      gc()
+      if(!all(Images_with_pixels)){
+        message(paste0("The following image do not have positive pixels. They will be removed: ", 
+                       str_c(Names_tibble$Subject_names_in_data[!Images_with_pixels], collapse = ", "))
+        )
+        Names_tibble <- Names_tibble[Images_with_pixels, ]
+      }
+      if(!nrow(Names_tibble) > 0) stop("No images with adequate number of pixels and/or cells.")
+      
+      
+      
       #Run a random test with the image with the lowest cell counts
       Smallest_sample <- (DATA %>% dplyr::count(Subject_Names) %>% arrange(n))[[1,1]] 
       DATA_smallest <- DATA %>% dplyr::filter(Subject_Names == Smallest_sample)
@@ -11754,12 +11792,6 @@ Cell_to_pixel_distance_calculator <-
           
           #Remove Phenotypes not included
           DATA_image <- DATA_image %>% dplyr::filter(Phenotype %in% Phenotypes_included)
-          
-          #If no phenotypes present in image remove it
-          if(nrow(DATA_image) == 0){
-            message(paste0(Names_tibble$Subject_names_in_data[[Index_image]], " does not contain cells in Phenotypes_included. It will be removed."))
-            return(DATA_image)
-          } 
           
           #Import Image
           Image <- magick::image_read(Names_tibble$Image_URL[[Index_image]])
