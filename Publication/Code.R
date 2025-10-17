@@ -800,13 +800,6 @@ Concordance_plot <- Concordance_calculator(K20_Neighborhoods = Neighborhoods_20c
                                            Strategy = "Rand" #Choose betweeen Rand and FM (Fowlkes-Mallows)
 )
 
-
-
-
-
-
-
-
 #########Colorectal Carcinoma DATASET#########
 
 #Import original data
@@ -866,6 +859,78 @@ Concordance_calculator(ORIGINAL = Original_neighborhood,
 )
 
 
+#########Human skin DATASET#########
+DATA_Phenotypes <- readRDS("SKIN_Dataset.rds")
 
+DATA_Closest_Neighbors <-
+  Tailored_Closest_neighbor_calculator(N_cores = 4, #Number of cores to parallelize your computation
+                                       DATA = DATA_Phenotypes$DATA, #Provide the data containing the Cell Type information
+                                       Strategy = "Distance", #Specify the strategy to consider two cells to be neighbors between Number, Distance, Both
+                                       N_neighbors = NULL, #Specify the number of closest neighbors to include in the analysis
+                                       Include_COO_in_neighborhood = TRUE, #Specify if the Cell of Origin should be included in neighbor counting
+                                       Max_dist_allowed = 60, #Specify the max Distance to define neighborhoods
+                                       Cell_Of_Origin = unique(DATA_Phenotypes$DATA$Phenotype)[-14], #Specify the cells of origin to include in the analysis (OTHER will be removed)
+                                       Target_Cell = unique(DATA_Phenotypes$DATA$Phenotype)[-14]) #Specify the target cells to include in the analysis (OTHER will be removed)
+
+
+DATA_neighborhoods <- Neighborhood_discovery_function(
+  DATA = DATA_Closest_Neighbors$Absolute_count, #Provide the data containing the Closest neighbor information
+  Allowed_max_Dist = 80, #Provide de threshold to eliminate cells whose neighbors are too far away
+  Allowed_avg_Dist = 80, #Provide de threshold to eliminate cells whose neighbors are too far away
+  Allowed_median_Dist = 80, #Provide de threshold to eliminate cells whose neighbors are too far away
+  
+  #Dimension reduction
+  Perform_Dimension_reduction = FALSE, #Should Dimension Reduction be performed
+  Dimension_reduction = "TSNE", #Strategy for dimension reduction, one of the following PCA, TSNE, UMAP
+  Dimension_reduction_prop = 0.5,#For TSNE and UMAP, reduction model can be calculated in a subset of the data and generalized to the whole dataset afterwrards. Improved efficiency for very large datasets
+  Cluster_on_Reduced = FALSE, #Should subsequent clustering be performed on reduced data
+  
+  #Clustering strategy
+  Strategy = "GMM", #Choose your clustering method (either Consensus_Clustering, SOM, Graph_Based, K_Means_Meta_clustering, Batch_K_means, GMM, CLARA_clustering)
+  
+  #Parameters for Gaussian Mixture Model
+  Quality_metric = "AIC", #The quality measure used to test the number of clusters ("AIC" or "BIC")
+  Max_N_neighborhoods_GMM = 25, #Number of maximum clusters (phenotypes) that you desire to find
+  Max_iterations_km = 500, #Number of max iterations in the K means clustering performed
+  Max_iterations_em = 500, #Number of max iterations in the Expectation Maximization algorithm
+  GMM_Distance = "eucl_dist" #Distance metric to use in the model ("eucl_dist" or "maha_dist")
+)
+
+#########Human lung DATASET#########
+DATA_Phenotypes <- readRDS("LUNG_Dataset.rds")
+
+
+DATA_Closest_Neighbors <-
+  Tailored_Closest_neighbor_calculator(N_cores = 4, #Number of cores to parallelize your computation
+                                       DATA = DATA_Phenotypes$DATA, #Provide the data containing the Cell Type information
+                                       Strategy = "Distance", #Specify the strategy to consider two cells to be neighbors between Number, Distance, Both
+                                       N_neighbors = NULL, #Specify the number of closest neighbors to include in the analysis
+                                       Include_COO_in_neighborhood = TRUE, #Specify if the Cell of Origin should be included in neighbor counting
+                                       Max_dist_allowed = 40, #Specify the max Distance to define neighborhoods
+                                       Cell_Of_Origin = unique(DATA_Phenotypes$DATA$Phenotype)[-3], #Specify the cells of origin to include in the analysis (OTHER will be removed)
+                                       Target_Cell = unique(DATA_Phenotypes$DATA$Phenotype)[-3]) #Specify the target cells to include in the analysis (OTHER will be removed)
+
+DATA_neighborhoods <- Neighborhood_discovery_function(
+  DATA = DATA_Closest_Neighbors$Absolute_count, #Provide the data containing the Closest neighbor information
+  Allowed_max_Dist = 80, #Provide de threshold to eliminate cells whose neighbors are too far away
+  Allowed_avg_Dist = 80, #Provide de threshold to eliminate cells whose neighbors are too far away
+  Allowed_median_Dist = 80, #Provide de threshold to eliminate cells whose neighbors are too far away
+  
+  #Dimension reduction
+  Perform_Dimension_reduction = FALSE, #Should Dimension Reduction be performed
+  Dimension_reduction = "TSNE", #Strategy for dimension reduction, one of the following PCA, TSNE, UMAP
+  Dimension_reduction_prop = 0.5,#For TSNE and UMAP, reduction model can be calculated in a subset of the data and generalized to the whole dataset afterwrards. Improved efficiency for very large datasets
+  Cluster_on_Reduced = FALSE, #Should subsequent clustering be performed on reduced data
+  
+  #Clustering strategy
+  Strategy = "GMM", #Choose your clustering method (either Consensus_Clustering, SOM, Graph_Based, K_Means_Meta_clustering, Batch_K_means, GMM, CLARA_clustering)
+  
+  #Parameters for Gaussian Mixture Model
+  Quality_metric = "AIC", #The quality measure used to test the number of clusters ("AIC" or "BIC")
+  Max_N_neighborhoods_GMM = 15, #Number of maximum clusters (phenotypes) that you desire to find
+  Max_iterations_km = 500, #Number of max iterations in the K means clustering performed
+  Max_iterations_em = 500, #Number of max iterations in the Expectation Maximization algorithm
+  GMM_Distance = "eucl_dist" #Distance metric to use in the model ("eucl_dist" or "maha_dist")
+)
 
   
