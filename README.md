@@ -4,27 +4,23 @@
 <img src="Images/CSM_OUTLINE.png" width="1000" style = "align-items: center">
 
 ## What you will find in this Repository (Folder description)
-[Requirements and installation](#Main-features-and-requirements) 
-[Main CSM scripts](#CSM-scripts) 
+[CSM R package download](#CSM-R-package) 
 [Publication associated datasets](#Publication) 
 [Image Bank](#Images) 
 [Citation](#Images) 
 
-## Main features and requirements
-* CSM is not an R package
-* CSM is delivered to the user as a R script containing functions and a script describing examples of use
-* CSM has been developed using R version 4.3 and above
-* CSM requires manual installation of several R packages (see User Code script for further details)
-
-## CSM scripts
-This folder contains the CSM source code (containing code for all required CSM functions) and the CSM user code (Containing examples of use). In addition a test dataset containing features of 300K endometrial carcinoma cells can also be found in this folder.
+## CSM R package
+* CSM package can be downloaded from R executing the following code:
+```diff
+devtools::install_github(Alvaro-LJ/CSM)
+``` 
+* We encourage users to visit CSM package [*repository*](https://github.com/Alvaro-LJ/CSM) for more information
 
 ## Publication
 This folder contains the CSM scripts and datasets to replicate the results of our [*publication*](publicationURL).
 
 ## Images
 This folder contains the CSM logo and toolbox outline.
-
 
 ## Citation
 Please cite this paper in case our method or parts of it were helpful in your work.
