@@ -1,5 +1,4 @@
-source(file  = "CSM VER_1.4.6 SOURCE CODE.R", # The file location of CSM functions
-       echo = FALSE)
+library(CSM)
 
 #Check your computing machine features
 Describe_my_computing_unit()
