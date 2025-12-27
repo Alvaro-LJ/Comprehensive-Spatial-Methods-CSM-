@@ -12,7 +12,7 @@
 ## CSM R package
 * CSM package can be downloaded executing the following code:
 ```diff
-devtools::install_github(Alvaro-LJ/CSM)
+devtools::install_github("Alvaro-LJ/CSM")
 ``` 
 * We encourage users to visit CSM package [*repository*](https://github.com/Alvaro-LJ/CSM) for more information.
 
