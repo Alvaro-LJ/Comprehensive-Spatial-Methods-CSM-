@@ -10,7 +10,7 @@
 [Citation](#Images) 
 
 ## CSM R package
-* CSM package can be downloaded from R executing the following code:
+* CSM package can be downloaded executing the following code:
 ```diff
 devtools::install_github(Alvaro-LJ/CSM)
 ``` 
