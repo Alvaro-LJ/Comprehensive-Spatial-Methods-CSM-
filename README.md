@@ -27,8 +27,9 @@ Please cite this paper in case our method or parts of it were helpful in your wo
 ```diff
 @article{
   title={Comprehensive Spatial Methods (CSM): a toolbox for spatially analyzing tissues in histopathology},
-  author={Alvaro Lopez-Janeiro, Eduardo Miraval-Wong, Paulo Perez-Dominguez, Raluca Alexandru, Maria Guadalupe García Vazquez, David Hardisson, Alberto Peláez-Garcia, David Ruiz-Guillamon, Ignacio Melero, Carlos E de Andrea}
+  author={Alvaro Lopez-Janeiro, Eduardo Miraval-Wong, Paulo Perez-Dominguez, Raluca Alexandru, Maria Guadalupe García Vazquez, David Hardisson, Alberto Peláez-Garcia, David Ruiz-Guillamon, Ignacio Melero, Carlos E de Andrea},
   journal={Laboratory Investigation},
-  year={2026}
+  year={2026},
+  doi = {10.1016/j.labinv.2025.104276}
 }
 ```
